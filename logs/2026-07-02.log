@@ -1,0 +1,204 @@
+2026-07-02 11:32:44,463 | INFO | ========================================
+2026-07-02 11:32:44,464 | INFO | Stock Monitor Starting...
+2026-07-02 11:32:44,464 | INFO | ========================================
+2026-07-02 11:32:44,466 | INFO | Excel File   : C:\Anand\StockMonitor\data\Portfolio.xlsx
+2026-07-02 11:32:44,467 | INFO | Market Opens : 09:15
+2026-07-02 11:32:44,467 | INFO | Market Closes: 15:30
+2026-07-02 11:32:44,467 | INFO | Report Time  : 15:35
+2026-07-02 11:32:44,500 | INFO | 
+2026-07-02 11:32:44,500 | INFO | Open Positions : 25
+2026-07-02 11:32:45,821 | INFO | 
+2026-07-02 11:32:45,821 | INFO | ==============================================================================================================
+2026-07-02 11:32:45,822 | INFO | Ticker            Current    Target       P/L ₹     P/L %      Remain            Status
+2026-07-02 11:32:45,822 | INFO | ==============================================================================================================
+2026-07-02 11:32:45,822 | INFO | TANLA | Bet=1 | Status=HOLD
+2026-07-02 11:32:45,822 | INFO | TANLA              534.30    635.00      618.00      6.14      100.70              HOLD
+2026-07-02 11:32:45,822 | INFO | CHAMBLFERT | Bet=2 | Status=HOLD
+2026-07-02 11:32:45,822 | INFO | CHAMBLFERT         474.35    520.00     1165.00     10.89       45.65              HOLD
+2026-07-02 11:32:45,822 | INFO | MOTILALOFS | Bet=3 | Status=NEAR TARGET
+2026-07-02 11:32:45,823 | INFO | MOTILALOFS         968.35   1000.00     4175.25     40.34       31.65       NEAR TARGET
+2026-07-02 11:32:45,823 | INFO | KalyaniKwellers | Bet=4 | Status=HOLD
+2026-07-02 11:32:45,823 | INFO | KalyaniKwellers    384.75    500.00     -312.00     -3.02      115.25              HOLD
+2026-07-02 11:32:45,823 | INFO | ICICIB22 | Bet=5 | Status=HOLD
+2026-07-02 11:32:45,823 | INFO | ICICIB22           118.76    130.00    -2410.00     -3.90       11.24              HOLD
+2026-07-02 11:32:45,823 | INFO | DEVYANI | Bet=6 | Status=HOLD
+2026-07-02 11:32:45,823 | INFO | DEVYANI            114.29    140.00      196.00      1.74       25.71              HOLD
+2026-07-02 11:32:45,824 | INFO | IDEAFORGE | Bet=7 | Status=HOLD
+2026-07-02 11:32:45,824 | INFO | IDEAFORGE          853.00   1026.00      585.00      4.79      173.00              HOLD
+2026-07-02 11:32:45,824 | INFO | NDRAUTO | Bet=8 | Status=HOLD
+2026-07-02 11:32:45,824 | INFO | NDRAUTO            872.15   1000.00      807.95      7.67      127.85              HOLD
+2026-07-02 11:32:45,824 | INFO | CARBORUNIV | Bet=9 | Status=HOLD
+2026-07-02 11:32:45,824 | INFO | CARBORUNIV        1137.70   1380.00      425.00      3.88      242.30              HOLD
+2026-07-02 11:32:45,825 | INFO | ECLERX | Bet=10 | Status=HOLD
+2026-07-02 11:32:45,825 | INFO | ECLERX            1430.90   2000.00     -844.90     -7.78      569.10              HOLD
+2026-07-02 11:32:45,825 | INFO | PURVA | Bet=11 | Status=HOLD
+2026-07-02 11:32:45,825 | INFO | PURVA              215.33    280.00     -974.81     -9.53       64.67              HOLD
+2026-07-02 11:32:45,825 | INFO | SKYGOLD | Bet=13 | Status=HOLD
+2026-07-02 11:32:45,825 | INFO | SKYGOLD            551.40    621.00     1168.40     11.85       69.60              HOLD
+2026-07-02 11:32:45,825 | INFO | OBEROIRLTY | Bet=14 | Status=HOLD
+2026-07-02 11:32:45,826 | INFO | OBEROIRLTY        1826.90   2152.00      715.20      6.98      325.10              HOLD
+2026-07-02 11:32:45,826 | INFO | HARIOMPIPE | Bet=15 | Status=HOLD
+2026-07-02 11:32:45,826 | INFO | HARIOMPIPE         394.50    560.00     -532.50     -5.12      165.50              HOLD
+2026-07-02 11:32:45,826 | INFO | SHAKTIPUMP | Bet=16 | Status=HOLD
+2026-07-02 11:32:45,826 | INFO | SHAKTIPUMP         575.95    800.00      627.00      5.76      224.05              HOLD
+2026-07-02 11:32:45,826 | INFO | Genesys | Bet=17 | Status=HOLD
+2026-07-02 11:32:45,827 | INFO | Genesys            338.80    500.00      489.80      4.89      161.20              HOLD
+2026-07-02 11:32:45,827 | INFO | AVG | Bet=18 | Status=HOLD
+2026-07-02 11:32:45,827 | INFO | AVG                206.63    250.00     1768.71     17.67       43.37              HOLD
+2026-07-02 11:32:45,827 | INFO | Ashok Leyland | Bet=19 | Status=HOLD
+2026-07-02 11:32:45,827 | INFO | Ashok Leyland      164.10    200.00     1969.00     13.63       35.90              HOLD
+2026-07-02 11:32:45,827 | INFO | AAVAS | Bet=20 | Status=HOLD
+2026-07-02 11:32:45,828 | INFO | AAVAS             1517.00   1800.00      751.20      6.60      283.00              HOLD
+2026-07-02 11:32:45,828 | INFO | SUNDARMFIN | Bet=21 | Status=HOLD
+2026-07-02 11:32:45,828 | INFO | SUNDARMFIN        4606.20   5200.00      582.60      4.40      593.80              HOLD
+2026-07-02 11:32:45,828 | INFO | SUDARSCHEM | Bet=22 | Status=HOLD
+2026-07-02 11:32:45,828 | INFO | SUDARSCHEM         894.80   1150.00     -327.80     -3.22      255.20              HOLD
+2026-07-02 11:32:45,828 | INFO | SPECTRUM | Bet=23 | Status=HOLD
+2026-07-02 11:32:45,829 | INFO | SPECTRUM          1902.00   2200.00      861.00      8.16      298.00              HOLD
+2026-07-02 11:32:45,829 | INFO | SUBROS | Bet=24 | Status=HOLD
+2026-07-02 11:32:45,829 | INFO | SUBROS             828.70   1000.00      -85.80     -0.86      171.30              HOLD
+2026-07-02 11:32:45,829 | INFO | HERITGFOOD | Bet=25 | Status=HOLD
+2026-07-02 11:32:45,829 | INFO | HERITGFOOD         337.15    426.00      -30.00     -0.30       88.85              HOLD
+2026-07-02 11:32:45,829 | INFO | SAIL | Bet=26 | Status=HOLD
+2026-07-02 11:32:45,830 | INFO | SAIL               166.92    200.00     -480.24     -4.73       33.08              HOLD
+2026-07-02 11:32:45,885 | INFO | 
+2026-07-02 11:32:45,885 | INFO | Updated 25 rows in Excel.
+2026-07-02 11:32:45,887 | INFO | 
+2026-07-02 11:32:45,889 | INFO | 
+2026-07-02 11:32:45,889 | INFO | HTML report generated: reports/report_20260702_113245.html
+2026-07-02 13:45:52,696 | INFO | ========================================
+2026-07-02 13:45:52,697 | INFO | Stock Monitor Starting...
+2026-07-02 13:45:52,697 | INFO | ========================================
+2026-07-02 13:45:52,699 | INFO | Excel File   : C:\Anand\StockMonitor\data\Portfolio.xlsx
+2026-07-02 13:45:52,699 | INFO | Market Opens : 09:15
+2026-07-02 13:45:52,699 | INFO | Market Closes: 15:30
+2026-07-02 13:45:52,699 | INFO | Report Time  : 15:35
+2026-07-02 13:45:52,735 | INFO | 
+2026-07-02 13:45:52,735 | INFO | Open Positions : 25
+2026-07-02 13:45:54,398 | INFO | 
+2026-07-02 13:45:54,398 | INFO | ==============================================================================================================
+2026-07-02 13:45:54,398 | INFO | Ticker            Current    Target       P/L ₹     P/L %      Remain            Status
+2026-07-02 13:45:54,398 | INFO | ==============================================================================================================
+2026-07-02 13:45:54,398 | INFO | TANLA | Bet=1 | Status=HOLD
+2026-07-02 13:45:54,399 | INFO | TANLA              530.80    635.00      548.00      5.44      104.20              HOLD
+2026-07-02 13:45:54,399 | INFO | CHAMBLFERT | Bet=2 | Status=HOLD
+2026-07-02 13:45:54,399 | INFO | CHAMBLFERT         473.35    520.00     1140.00     10.66       46.65              HOLD
+2026-07-02 13:45:54,399 | INFO | MOTILALOFS | Bet=3 | Status=NEAR TARGET
+2026-07-02 13:45:54,399 | INFO | MOTILALOFS         952.15   1000.00     3932.25     37.99       47.85       NEAR TARGET
+2026-07-02 13:45:54,400 | INFO | KalyaniKwellers | Bet=4 | Status=HOLD
+2026-07-02 13:45:54,400 | INFO | KalyaniKwellers    386.60    500.00     -263.90     -2.56      113.40              HOLD
+2026-07-02 13:45:54,400 | INFO | ICICIB22 | Bet=5 | Status=HOLD
+2026-07-02 13:45:54,400 | INFO | ICICIB22           118.70    130.00    -2440.00     -3.95       11.30              HOLD
+2026-07-02 13:45:54,401 | INFO | DEVYANI | Bet=6 | Status=HOLD
+2026-07-02 13:45:54,401 | INFO | DEVYANI            114.22    140.00      189.00      1.68       25.78              HOLD
+2026-07-02 13:45:54,401 | INFO | IDEAFORGE | Bet=7 | Status=HOLD
+2026-07-02 13:45:54,401 | INFO | IDEAFORGE          860.00   1026.00      690.00      5.65      166.00              HOLD
+2026-07-02 13:45:54,402 | INFO | NDRAUTO | Bet=8 | Status=HOLD
+2026-07-02 13:45:54,402 | INFO | NDRAUTO            885.00   1000.00      975.00      9.26      115.00              HOLD
+2026-07-02 13:45:54,402 | INFO | CARBORUNIV | Bet=9 | Status=HOLD
+2026-07-02 13:45:54,402 | INFO | CARBORUNIV        1136.40   1380.00      412.00      3.76      243.60              HOLD
+2026-07-02 13:45:54,403 | INFO | ECLERX | Bet=10 | Status=HOLD
+2026-07-02 13:45:54,403 | INFO | ECLERX            1408.20   2000.00    -1003.80     -9.24      591.80              HOLD
+2026-07-02 13:45:54,403 | INFO | PURVA | Bet=11 | Status=HOLD
+2026-07-02 13:45:54,403 | INFO | PURVA              215.91    280.00     -949.87     -9.28       64.09              HOLD
+2026-07-02 13:45:54,403 | INFO | SKYGOLD | Bet=13 | Status=HOLD
+2026-07-02 13:45:54,404 | INFO | SKYGOLD            561.65    621.00     1373.40     13.93       59.35              HOLD
+2026-07-02 13:45:54,404 | INFO | OBEROIRLTY | Bet=14 | Status=HOLD
+2026-07-02 13:45:54,405 | INFO | OBEROIRLTY        1853.70   2152.00      876.00      8.55      298.30              HOLD
+2026-07-02 13:45:54,405 | INFO | HARIOMPIPE | Bet=15 | Status=HOLD
+2026-07-02 13:45:54,406 | INFO | HARIOMPIPE         395.00    560.00     -520.00     -5.00      165.00              HOLD
+2026-07-02 13:45:54,406 | INFO | SHAKTIPUMP | Bet=16 | Status=HOLD
+2026-07-02 13:45:54,406 | INFO | SHAKTIPUMP         575.20    800.00      612.00      5.62      224.80              HOLD
+2026-07-02 13:45:54,406 | INFO | Genesys | Bet=17 | Status=HOLD
+2026-07-02 13:45:54,407 | INFO | Genesys            334.65    500.00      361.15      3.61      165.35              HOLD
+2026-07-02 13:45:54,407 | INFO | AVG | Bet=18 | Status=HOLD
+2026-07-02 13:45:54,408 | INFO | AVG                207.66    250.00     1827.42     18.26       42.34              HOLD
+2026-07-02 13:45:54,408 | INFO | Ashok Leyland | Bet=19 | Status=HOLD
+2026-07-02 13:45:54,409 | INFO | Ashok Leyland      164.78    200.00     2037.00     14.11       35.22              HOLD
+2026-07-02 13:45:54,409 | INFO | AAVAS | Bet=20 | Status=HOLD
+2026-07-02 13:45:54,409 | INFO | AAVAS             1506.90   1800.00      670.40      5.89      293.10              HOLD
+2026-07-02 13:45:54,409 | INFO | SUNDARMFIN | Bet=21 | Status=HOLD
+2026-07-02 13:45:54,410 | INFO | SUNDARMFIN        4565.50   5200.00      460.50      3.48      634.50              HOLD
+2026-07-02 13:45:54,410 | INFO | SUDARSCHEM | Bet=22 | Status=HOLD
+2026-07-02 13:45:54,410 | INFO | SUDARSCHEM         891.25   1150.00     -366.85     -3.61      258.75              HOLD
+2026-07-02 13:45:54,410 | INFO | SPECTRUM | Bet=23 | Status=HOLD
+2026-07-02 13:45:54,410 | INFO | SPECTRUM          1929.50   2200.00     1026.00      9.72      270.50              HOLD
+2026-07-02 13:45:54,411 | INFO | SUBROS | Bet=24 | Status=HOLD
+2026-07-02 13:45:54,411 | INFO | SUBROS             834.90   1000.00      -11.40     -0.11      165.10              HOLD
+2026-07-02 13:45:54,411 | INFO | HERITGFOOD | Bet=25 | Status=HOLD
+2026-07-02 13:45:54,411 | INFO | HERITGFOOD         336.20    426.00      -58.50     -0.58       89.80              HOLD
+2026-07-02 13:45:54,412 | INFO | SAIL | Bet=26 | Status=HOLD
+2026-07-02 13:45:54,412 | INFO | SAIL               166.32    200.00     -515.04     -5.07       33.68              HOLD
+2026-07-02 13:45:54,478 | INFO | 
+2026-07-02 13:45:54,478 | INFO | Updated 25 rows in Excel.
+2026-07-02 13:45:54,479 | INFO | 
+2026-07-02 13:45:54,481 | INFO | 
+2026-07-02 13:45:54,481 | INFO | HTML report generated: reports/report_20260702_134554.html
+2026-07-02 15:46:50,770 | INFO | ========================================
+2026-07-02 15:46:50,771 | INFO | Stock Monitor Starting...
+2026-07-02 15:46:50,771 | INFO | ========================================
+2026-07-02 15:46:50,772 | INFO | Excel File   : C:\Anand\StockMonitor\data\Portfolio.xlsx
+2026-07-02 15:46:50,772 | INFO | Market Opens : 09:15
+2026-07-02 15:46:50,772 | INFO | Market Closes: 15:30
+2026-07-02 15:46:50,773 | INFO | Report Time  : 15:35
+2026-07-02 15:46:50,811 | INFO | 
+2026-07-02 15:46:50,811 | INFO | Open Positions : 25
+2026-07-02 15:46:52,135 | INFO | 
+2026-07-02 15:46:52,135 | INFO | ==============================================================================================================
+2026-07-02 15:46:52,135 | INFO | Ticker            Current    Target       P/L ₹     P/L %      Remain            Status
+2026-07-02 15:46:52,136 | INFO | ==============================================================================================================
+2026-07-02 15:46:52,136 | INFO | TANLA | Bet=1 | Status=HOLD
+2026-07-02 15:46:52,136 | INFO | TANLA              535.00    635.00      632.00      6.28      100.00              HOLD
+2026-07-02 15:46:52,136 | INFO | CHAMBLFERT | Bet=2 | Status=HOLD
+2026-07-02 15:46:52,136 | INFO | CHAMBLFERT         478.95    520.00     1280.00     11.97       41.05              HOLD
+2026-07-02 15:46:52,136 | INFO | MOTILALOFS | Bet=3 | Status=NEAR TARGET
+2026-07-02 15:46:52,136 | INFO | MOTILALOFS         957.00   1000.00     4005.00     38.70       43.00       NEAR TARGET
+2026-07-02 15:46:52,137 | INFO | KalyaniKwellers | Bet=4 | Status=HOLD
+2026-07-02 15:46:52,137 | INFO | KalyaniKwellers    388.25    500.00     -221.00     -2.14      111.75              HOLD
+2026-07-02 15:46:52,137 | INFO | ICICIB22 | Bet=5 | Status=HOLD
+2026-07-02 15:46:52,137 | INFO | ICICIB22           118.81    130.00    -2385.00     -3.86       11.19              HOLD
+2026-07-02 15:46:52,137 | INFO | DEVYANI | Bet=6 | Status=HOLD
+2026-07-02 15:46:52,137 | INFO | DEVYANI            114.43    140.00      210.00      1.87       25.57              HOLD
+2026-07-02 15:46:52,137 | INFO | IDEAFORGE | Bet=7 | Status=HOLD
+2026-07-02 15:46:52,137 | INFO | IDEAFORGE          848.00   1026.00      510.00      4.18      178.00              HOLD
+2026-07-02 15:46:52,138 | INFO | NDRAUTO | Bet=8 | Status=HOLD
+2026-07-02 15:46:52,138 | INFO | NDRAUTO            893.00   1000.00     1079.00     10.25      107.00              HOLD
+2026-07-02 15:46:52,138 | INFO | CARBORUNIV | Bet=9 | Status=HOLD
+2026-07-02 15:46:52,138 | INFO | CARBORUNIV        1140.60   1380.00      454.00      4.15      239.40              HOLD
+2026-07-02 15:46:52,138 | INFO | ECLERX | Bet=10 | Status=HOLD
+2026-07-02 15:46:52,138 | INFO | ECLERX            1399.50   2000.00    -1064.70     -9.80      600.50              HOLD
+2026-07-02 15:46:52,138 | INFO | PURVA | Bet=11 | Status=HOLD
+2026-07-02 15:46:52,138 | INFO | PURVA              215.00    280.00     -989.00     -9.66       65.00              HOLD
+2026-07-02 15:46:52,139 | INFO | SKYGOLD | Bet=13 | Status=HOLD
+2026-07-02 15:46:52,139 | INFO | SKYGOLD            570.00    621.00     1540.40     15.62       51.00              HOLD
+2026-07-02 15:46:52,139 | INFO | OBEROIRLTY | Bet=14 | Status=HOLD
+2026-07-02 15:46:52,139 | INFO | OBEROIRLTY        1857.00   2152.00      895.80      8.74      295.00              HOLD
+2026-07-02 15:46:52,140 | INFO | HARIOMPIPE | Bet=15 | Status=HOLD
+2026-07-02 15:46:52,140 | INFO | HARIOMPIPE         399.25    560.00     -413.75     -3.98      160.75              HOLD
+2026-07-02 15:46:52,140 | INFO | SHAKTIPUMP | Bet=16 | Status=HOLD
+2026-07-02 15:46:52,140 | INFO | SHAKTIPUMP         573.75    800.00      583.00      5.35      226.25              HOLD
+2026-07-02 15:46:52,140 | INFO | Genesys | Bet=17 | Status=HOLD
+2026-07-02 15:46:52,140 | INFO | Genesys            335.30    500.00      381.30      3.81      164.70              HOLD
+2026-07-02 15:46:52,141 | INFO | AVG | Bet=18 | Status=HOLD
+2026-07-02 15:46:52,141 | INFO | AVG                208.46    250.00     1873.02     18.71       41.54              HOLD
+2026-07-02 15:46:52,141 | INFO | Ashok Leyland | Bet=19 | Status=HOLD
+2026-07-02 15:46:52,141 | INFO | Ashok Leyland      164.40    200.00     1999.00     13.84       35.60              HOLD
+2026-07-02 15:46:52,142 | INFO | AAVAS | Bet=20 | Status=HOLD
+2026-07-02 15:46:52,142 | INFO | AAVAS             1503.00   1800.00      639.20      5.61      297.00              HOLD
+2026-07-02 15:46:52,142 | INFO | SUNDARMFIN | Bet=21 | Status=HOLD
+2026-07-02 15:46:52,142 | INFO | SUNDARMFIN        4555.10   5200.00      429.30      3.24      644.90              HOLD
+2026-07-02 15:46:52,143 | INFO | SUDARSCHEM | Bet=22 | Status=HOLD
+2026-07-02 15:46:52,143 | INFO | SUDARSCHEM         896.95   1150.00     -304.15     -2.99      253.05              HOLD
+2026-07-02 15:46:52,143 | INFO | SPECTRUM | Bet=23 | Status=HOLD
+2026-07-02 15:46:52,143 | INFO | SPECTRUM          1878.80   2200.00      721.80      6.84      321.20              HOLD
+2026-07-02 15:46:52,144 | INFO | SUBROS | Bet=24 | Status=HOLD
+2026-07-02 15:46:52,144 | INFO | SUBROS             849.00   1000.00      157.80      1.57      151.00              HOLD
+2026-07-02 15:46:52,144 | INFO | HERITGFOOD | Bet=25 | Status=HOLD
+2026-07-02 15:46:52,144 | INFO | HERITGFOOD         334.00    426.00     -124.50     -1.23       92.00              HOLD
+2026-07-02 15:46:52,145 | INFO | SAIL | Bet=26 | Status=HOLD
+2026-07-02 15:46:52,145 | INFO | SAIL               168.00    200.00     -417.60     -4.11       32.00              HOLD
+2026-07-02 15:46:52,191 | INFO | 
+2026-07-02 15:46:52,191 | INFO | Updated 25 rows in Excel.
+2026-07-02 15:46:52,192 | INFO | 
+2026-07-02 15:46:52,194 | INFO | 
+2026-07-02 15:46:52,194 | INFO | HTML report generated: reports/report_20260702_154652.html

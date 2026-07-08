@@ -1,0 +1,1455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Monitor Report</title>
+<style>
+:root {
+    color-scheme: light;
+    --bg: #eef3f8;
+    --panel: #ffffff;
+    --ink: #172033;
+    --muted: #64748b;
+    --line: #dce5ef;
+    --brand: #2563eb;
+    --brand-dark: #1e3a8a;
+    --positive: #087f5b;
+    --positive-bg: #e7f8ef;
+    --negative: #c92a2a;
+    --negative-bg: #fff0f0;
+    --warning: #b76e00;
+    --warning-bg: #fff4d6;
+    --info: #1d4ed8;
+    --info-bg: #e8f0ff;
+    --shadow: 0 20px 50px rgba(21, 32, 51, 0.10);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 34rem),
+        linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+    color: var(--ink);
+    font-family: Inter, "Segoe UI", Arial, sans-serif;
+}
+
+.page {
+    width: min(1220px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 32px 0 44px;
+}
+
+.hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--brand-dark), #0f766e);
+    color: #ffffff;
+    box-shadow: var(--shadow);
+}
+
+.eyebrow {
+    margin: 0 0 8px;
+    color: #bfdbfe;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+h1 {
+    margin: 0;
+    font-size: 34px;
+    line-height: 1.1;
+}
+
+.hero-meta {
+    margin: 10px 0 0;
+    color: #dbeafe;
+}
+
+.hero-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(210px, 1fr));
+    gap: 12px;
+}
+
+.hero-profit {
+    min-width: 230px;
+    padding: 18px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.12);
+    text-align: right;
+}
+
+.hero-profit span {
+    display: block;
+    color: #dbeafe;
+    font-size: 13px;
+}
+
+.hero-profit strong {
+    display: block;
+    margin-top: 6px;
+    color: #ffffff;
+    font-size: 28px;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+}
+
+.card {
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: 0 10px 28px rgba(21, 32, 51, 0.06);
+}
+
+.card h2 {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.card p {
+    margin: 10px 0 0;
+    font-size: 27px;
+    font-weight: 800;
+}
+
+.card-note {
+    display: block;
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.grid .section {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.grid .table-wrap {
+    flex: 1;
+}
+
+.grid table {
+    height: 100%;
+}
+
+.section {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: 0 10px 28px rgba(21, 32, 51, 0.06);
+}
+
+.section + .section {
+    margin-top: 20px;
+}
+
+.section h2 {
+    margin: 0;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--line);
+    font-size: 18px;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th {
+    padding: 12px 14px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-align: right;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+th:first-child,
+td:first-child {
+    text-align: left;
+}
+
+td {
+    padding: 14px;
+    border-top: 1px solid var(--line);
+    text-align: right;
+    white-space: nowrap;
+}
+
+tbody tr:hover {
+    background: #f8fbff;
+}
+
+.placeholder-row td {
+    color: #cbd5e1;
+    font-weight: 700;
+}
+
+.subtle {
+    display: block;
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.positive {
+    color: var(--positive);
+    font-weight: 800;
+}
+
+.negative {
+    color: var(--negative);
+    font-weight: 800;
+}
+
+.neutral {
+    color: var(--muted);
+    font-weight: 800;
+}
+
+.hero-profit .positive {
+    color: #bbf7d0;
+}
+
+.hero-profit .negative {
+    color: #fecaca;
+}
+
+.hero-profit .neutral {
+    color: #e2e8f0;
+}
+
+.hero-profit strong.positive,
+.hero-profit strong.negative,
+.hero-profit strong.neutral {
+    color: #ffffff;
+}
+
+.chart-summary {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px 0;
+}
+
+.chart-summary strong.positive {
+    color: var(--positive);
+}
+
+.chart-summary strong.negative {
+    color: var(--negative);
+}
+
+.section-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+}
+
+.period-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.period-button,
+.pagination button {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #ffffff;
+    color: var(--ink);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    padding: 8px 12px;
+}
+
+.period-button.active,
+.pagination button:not(:disabled):hover {
+    border-color: var(--brand);
+    background: var(--info-bg);
+    color: var(--brand);
+}
+
+.period-button:hover {
+    border-color: var(--brand);
+}
+
+.chart-summary span {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.chart-summary strong {
+    display: block;
+    margin-top: 4px;
+    font-size: 18px;
+}
+
+.line-chart {
+    display: block;
+    width: 100%;
+    height: auto;
+    padding: 8px 14px 18px;
+}
+
+.axis {
+    stroke: #cbd5e1;
+    stroke-width: 1.2;
+}
+
+.chart-area {
+    fill: rgba(37, 99, 235, 0.12);
+}
+
+.chart-line {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 3.2;
+}
+
+.chart-line.invested {
+    stroke: #94a3b8;
+    stroke-dasharray: 8 8;
+}
+
+.chart-line.current {
+    stroke: var(--brand);
+}
+
+.chart-line.expected {
+    stroke: var(--positive);
+}
+
+.chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 4px 20px 0;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.legend-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 6px;
+    border-radius: 999px;
+}
+
+.legend-dot.invested {
+    background: #94a3b8;
+}
+
+.legend-dot.current {
+    background: var(--brand);
+}
+
+.legend-dot.expected {
+    background: var(--positive);
+}
+
+.line-chart circle {
+    fill: #ffffff;
+    stroke: var(--brand);
+    stroke-width: 3;
+}
+
+.chart-label {
+    fill: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.chart-label.end {
+    text-anchor: end;
+}
+
+th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+th.sortable::after {
+    content: "  sort";
+    color: #94a3b8;
+    font-size: 10px;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+th.sorted-asc::after {
+    content: "  up";
+    color: var(--brand);
+}
+
+th.sorted-desc::after {
+    content: "  down";
+    color: var(--brand);
+}
+
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.pagination button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 96px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.pill.success {
+    background: var(--positive-bg);
+    color: var(--positive);
+}
+
+.pill.warning {
+    background: var(--warning-bg);
+    color: var(--warning);
+}
+
+.pill.info {
+    background: var(--info-bg);
+    color: var(--info);
+}
+
+.pill.neutral-pill {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.rank {
+    width: 52px;
+    color: var(--muted);
+    font-weight: 800;
+    text-align: center;
+}
+
+.empty {
+    padding: 24px;
+    color: var(--muted);
+    text-align: center;
+}
+
+@media (max-width: 900px) {
+    .hero {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .hero-profit {
+        text-align: left;
+    }
+
+    .hero-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .cards,
+    .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .page {
+        width: min(100% - 20px, 1220px);
+        padding-top: 10px;
+    }
+
+    h1 {
+        font-size: 27px;
+    }
+
+    .cards,
+    .grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+</head>
+<body>
+<main class="page">
+    <section class="hero">
+        <div>
+            <p class="eyebrow">Daily Portfolio Report</p>
+            <h1>Stock Monitor</h1>
+            <p class="hero-meta">Generated 07-Jul-2026 at 02:10 PM</p>
+        </div>
+        <div class="hero-metrics">
+            <div class="hero-profit">
+                <span>Open profit / loss</span>
+                <strong class="positive">INR 9,791.73</strong>
+                <span class="positive">+2.96%</span>
+            </div>
+            <div class="hero-profit">
+                <span>Expected total return</span>
+                <strong class="positive">INR 79,126.85</strong>
+                <span>Open target upside only</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="cards" aria-label="Summary">
+        <article class="card">
+            <h2>Total Positions</h2>
+            <p>27</p>
+        </article>
+        <article class="card">
+            <h2>Open</h2>
+            <p>26</p>
+        </article>
+        <article class="card">
+            <h2>Closed</h2>
+            <p>1</p>
+        </article>
+        <article class="card">
+            <h2>Open Winners</h2>
+            <p class="positive">17</p>
+        </article>
+        <article class="card">
+            <h2>Win Rate</h2>
+            <p class="positive">3.70%</p>
+            <span class="card-note">1 win / 27 trades</span>
+        </article>
+        <article class="card">
+            <h2>Closed P/L</h2>
+            <p class="positive">INR 4,208.00</p>
+        </article>
+    </section>
+
+    <section class="section">
+        <h2>Portfolio Value vs Target</h2>
+        <div class="section-toolbar">
+            <div class="period-controls" aria-label="Chart period">
+                <button class="period-button" data-period="day" type="button">Day</button>
+                <button class="period-button" data-period="week" type="button">Week</button>
+                <button class="period-button" data-period="month" type="button">Month</button>
+                <button class="period-button" data-period="year" type="button">Year</button>
+                <button class="period-button active" data-period="all" type="button">All Time</button>
+            </div>
+        </div>
+        <div id="portfolio-chart" data-points='[{&quot;label&quot;: &quot;TANLA&quot;, &quot;date&quot;: &quot;23/01/2026&quot;, &quot;invested&quot;: 10068.0, &quot;current&quot;: 10798.0, &quot;expected&quot;: 12700.0}, {&quot;label&quot;: &quot;CHAMBLFERT&quot;, &quot;date&quot;: &quot;25/03/2026&quot;, &quot;invested&quot;: 20761.75, &quot;current&quot;: 22569.25, &quot;expected&quot;: 25700.0}, {&quot;label&quot;: &quot;MOTILALOFS&quot;, &quot;date&quot;: &quot;25/03/2026&quot;, &quot;invested&quot;: 31111.75, &quot;current&quot;: 36695.5, &quot;expected&quot;: 40700.0}, {&quot;label&quot;: &quot;KalyaniKwellers&quot;, &quot;date&quot;: &quot;25/03/2026&quot;, &quot;invested&quot;: 41427.25, &quot;current&quot;: 46003.5, &quot;expected&quot;: 53700.0}, {&quot;label&quot;: &quot;ICICIB22&quot;, &quot;date&quot;: &quot;15/04/2026&quot;, &quot;invested&quot;: 103217.25, &quot;current&quot;: 105018.5, &quot;expected&quot;: 118700.0}, {&quot;label&quot;: &quot;DEVYANI&quot;, &quot;date&quot;: &quot;27/04/2026&quot;, &quot;invested&quot;: 114450.25, &quot;current&quot;: 116363.5, &quot;expected&quot;: 132700.0}, {&quot;label&quot;: &quot;IDEAFORGE&quot;, &quot;date&quot;: &quot;2026-06-05 00:00:00&quot;, &quot;invested&quot;: 126660.25, &quot;current&quot;: 128797.0, &quot;expected&quot;: 148090.0}, {&quot;label&quot;: &quot;NDRAUTO&quot;, &quot;date&quot;: &quot;15/05/2026&quot;, &quot;invested&quot;: 137190.25, &quot;current&quot;: 140112.2, &quot;expected&quot;: 161090.0}, {&quot;label&quot;: &quot;CARBORUNIV&quot;, &quot;date&quot;: &quot;15/05/2026&quot;, &quot;invested&quot;: 148142.25, &quot;current&quot;: 151242.2, &quot;expected&quot;: 174890.0}, {&quot;label&quot;: &quot;ATULAUTO&quot;, &quot;date&quot;: &quot;15/05/2026&quot;, &quot;invested&quot;: 158485.25, &quot;current&quot;: 161072.2, &quot;expected&quot;: 186890.0}, {&quot;label&quot;: &quot;ECLERX&quot;, &quot;date&quot;: &quot;19/05/2026&quot;, &quot;invested&quot;: 169346.45, &quot;current&quot;: 171479.8, &quot;expected&quot;: 200890.0}, {&quot;label&quot;: &quot;PURVA&quot;, &quot;date&quot;: &quot;19/05/2026&quot;, &quot;invested&quot;: 179580.45, &quot;current&quot;: 180808.65, &quot;expected&quot;: 212930.0}, {&quot;label&quot;: &quot;AxisBank&quot;, &quot;date&quot;: &quot;2026-06-12 00:00:00&quot;, &quot;invested&quot;: 229640.45, &quot;current&quot;: 235076.65, &quot;expected&quot;: 267198.0}, {&quot;label&quot;: &quot;SKYGOLD&quot;, &quot;date&quot;: &quot;20/05/2026&quot;, &quot;invested&quot;: 239500.05, &quot;current&quot;: 246230.65, &quot;expected&quot;: 279618.0}, {&quot;label&quot;: &quot;OBEROIRLTY&quot;, &quot;date&quot;: &quot;25/05/2026&quot;, &quot;invested&quot;: 249746.25, &quot;current&quot;: 257798.65, &quot;expected&quot;: 292530.0}, {&quot;label&quot;: &quot;HARIOMPIPE&quot;, &quot;date&quot;: &quot;26/05/2026&quot;, &quot;invested&quot;: 260141.25, &quot;current&quot;: 267483.65, &quot;expected&quot;: 306530.0}, {&quot;label&quot;: &quot;SHAKTIPUMP&quot;, &quot;date&quot;: &quot;2026-05-06 00:00:00&quot;, &quot;invested&quot;: 271033.25, &quot;current&quot;: 279299.65, &quot;expected&quot;: 322530.0}, {&quot;label&quot;: &quot;Genesys&quot;, &quot;date&quot;: &quot;2026-10-06 00:00:00&quot;, &quot;invested&quot;: 281046.25, &quot;current&quot;: 289529.65, &quot;expected&quot;: 338030.0}, {&quot;label&quot;: &quot;AVG&quot;, &quot;date&quot;: &quot;2026-11-06 00:00:00&quot;, &quot;invested&quot;: 291055.45, &quot;current&quot;: 301176.46, &quot;expected&quot;: 352280.0}, {&quot;label&quot;: &quot;Ashok Leyland&quot;, &quot;date&quot;: &quot;2026-12-06 00:00:00&quot;, &quot;invested&quot;: 305496.45, &quot;current&quot;: 317611.46, &quot;expected&quot;: 372280.0}, {&quot;label&quot;: &quot;AAVAS&quot;, &quot;date&quot;: &quot;2026-12-06 00:00:00&quot;, &quot;invested&quot;: 316881.25, &quot;current&quot;: 329749.86, &quot;expected&quot;: 386680.0}, {&quot;label&quot;: &quot;SUNDARMFIN&quot;, &quot;date&quot;: &quot;2026-06-15 00:00:00&quot;, &quot;invested&quot;: 330117.25, &quot;current&quot;: 343736.46, &quot;expected&quot;: 402280.0}, {&quot;label&quot;: &quot;SUDARSCHEM&quot;, &quot;date&quot;: &quot;2026-06-18 00:00:00&quot;, &quot;invested&quot;: 340287.85, &quot;current&quot;: 353943.36, &quot;expected&quot;: 414930.0}, {&quot;label&quot;: &quot;SPECTRUM&quot;, &quot;date&quot;: &quot;2026-06-18 00:00:00&quot;, &quot;invested&quot;: 350838.85, &quot;current&quot;: 365826.96, &quot;expected&quot;: 428130.0}, {&quot;label&quot;: &quot;SUBROS&quot;, &quot;date&quot;: &quot;22/06/2026&quot;, &quot;invested&quot;: 360869.05, &quot;current&quot;: 375654.96, &quot;expected&quot;: 440130.0}, {&quot;label&quot;: &quot;HERITGFOOD&quot;, &quot;date&quot;: &quot;25/06/2026&quot;, &quot;invested&quot;: 371013.55, &quot;current&quot;: 385590.96, &quot;expected&quot;: 452910.0}, {&quot;label&quot;: &quot;SAIL&quot;, &quot;date&quot;: &quot;29/06/2026&quot;, &quot;invested&quot;: 381175.15, &quot;current&quot;: 395174.88, &quot;expected&quot;: 464510.0}]'></div>
+    </section>
+
+    <section class="grid">
+        <article class="section">
+            <h2>Top 5 Winners</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Rank</th><th>Ticker</th><th>P/L %</th></tr>
+                    </thead>
+                    <tbody>
+                        
+                    <tr>
+                        <td class="rank">1</td>
+                        <td><strong>MOTILALOFS</strong></td>
+                        <td class="positive">+36.49%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">2</td>
+                        <td><strong>AVG</strong></td>
+                        <td class="positive">+16.36%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">3</td>
+                        <td><strong>Ashok Leyland</strong></td>
+                        <td class="positive">+13.81%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">4</td>
+                        <td><strong>SKYGOLD</strong></td>
+                        <td class="positive">+13.13%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">5</td>
+                        <td><strong>OBEROIRLTY</strong></td>
+                        <td class="positive">+12.90%</td>
+                    </tr>
+                    
+                    </tbody>
+                </table>
+            </div>
+        </article>
+
+        <article class="section">
+            <h2>Top 5 Losers</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Rank</th><th>Ticker</th><th>P/L %</th></tr>
+                    </thead>
+                    <tbody>
+                        
+                    <tr>
+                        <td class="rank">1</td>
+                        <td><strong>KalyaniKwellers</strong></td>
+                        <td class="negative">-9.77%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">2</td>
+                        <td><strong>PURVA</strong></td>
+                        <td class="negative">-8.84%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">3</td>
+                        <td><strong>HARIOMPIPE</strong></td>
+                        <td class="negative">-6.83%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">4</td>
+                        <td><strong>SAIL</strong></td>
+                        <td class="negative">-5.68%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">5</td>
+                        <td><strong>ATULAUTO</strong></td>
+                        <td class="negative">-4.96%</td>
+                    </tr>
+                    
+                    </tbody>
+                </table>
+            </div>
+        </article>
+
+        <article class="section">
+            <h2>Near Target</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Rank</th><th>Ticker</th><th>Remaining</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="3" class="empty">No positions to show.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    </section>
+
+    <section class="section">
+        <h2>Open Positions</h2>
+        <div class="table-wrap">
+            <table class="interactive-table" data-page-size="10">
+                <thead>
+                    <tr>
+                        <th>Ticker</th>
+                        <th>Qty</th>
+                        <th>Buy</th>
+                        <th>Current</th>
+                        <th>Target</th>
+                        <th>P/L</th>
+                        <th>P/L %</th>
+                        <th>Remaining</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <tr>
+                        <td>
+                            <strong>TANLA</strong>
+                            <span class="subtle">Bet 1</span>
+                        </td>
+                        <td>20</td>
+                        <td>503.40</td>
+                        <td>539.90</td>
+                        <td>635.00</td>
+                        <td class="positive">INR 730.00</td>
+                        <td class="positive">+7.25%</td>
+                        <td>INR 95.10</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>CHAMBLFERT</strong>
+                            <span class="subtle">Bet 2</span>
+                        </td>
+                        <td>25</td>
+                        <td>427.75</td>
+                        <td>470.85</td>
+                        <td>520.00</td>
+                        <td class="positive">INR 1,077.50</td>
+                        <td class="positive">+10.08%</td>
+                        <td>INR 49.15</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>MOTILALOFS</strong>
+                            <span class="subtle">Bet 3</span>
+                        </td>
+                        <td>15</td>
+                        <td>690.00</td>
+                        <td>941.75</td>
+                        <td>1,000.00</td>
+                        <td class="positive">INR 3,776.25</td>
+                        <td class="positive">+36.49%</td>
+                        <td>INR 58.25</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>KalyaniKwellers</strong>
+                            <span class="subtle">Bet 4</span>
+                        </td>
+                        <td>26</td>
+                        <td>396.75</td>
+                        <td>358.00</td>
+                        <td>500.00</td>
+                        <td class="negative">INR -1,007.50</td>
+                        <td class="negative">-9.77%</td>
+                        <td>INR 142.00</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>ICICIB22</strong>
+                            <span class="subtle">Bet 5</span>
+                        </td>
+                        <td>500</td>
+                        <td>123.58</td>
+                        <td>118.03</td>
+                        <td>130.00</td>
+                        <td class="negative">INR -2,775.00</td>
+                        <td class="negative">-4.49%</td>
+                        <td>INR 11.97</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>DEVYANI</strong>
+                            <span class="subtle">Bet 6</span>
+                        </td>
+                        <td>100</td>
+                        <td>112.33</td>
+                        <td>113.45</td>
+                        <td>140.00</td>
+                        <td class="positive">INR 112.00</td>
+                        <td class="positive">+1.00%</td>
+                        <td>INR 26.55</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>IDEAFORGE</strong>
+                            <span class="subtle">Bet 7</span>
+                        </td>
+                        <td>15</td>
+                        <td>814.00</td>
+                        <td>828.90</td>
+                        <td>1,026.00</td>
+                        <td class="positive">INR 223.50</td>
+                        <td class="positive">+1.83%</td>
+                        <td>INR 197.10</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>NDRAUTO</strong>
+                            <span class="subtle">Bet 8</span>
+                        </td>
+                        <td>13</td>
+                        <td>810.00</td>
+                        <td>870.40</td>
+                        <td>1,000.00</td>
+                        <td class="positive">INR 785.20</td>
+                        <td class="positive">+7.46%</td>
+                        <td>INR 129.60</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>CARBORUNIV</strong>
+                            <span class="subtle">Bet 9</span>
+                        </td>
+                        <td>10</td>
+                        <td>1,095.20</td>
+                        <td>1,113.00</td>
+                        <td>1,380.00</td>
+                        <td class="positive">INR 178.00</td>
+                        <td class="positive">+1.63%</td>
+                        <td>INR 267.00</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>ATULAUTO</strong>
+                            <span class="subtle">Bet 10</span>
+                        </td>
+                        <td>20</td>
+                        <td>517.15</td>
+                        <td>491.50</td>
+                        <td>600.00</td>
+                        <td class="negative">INR -513.00</td>
+                        <td class="negative">-4.96%</td>
+                        <td>INR 108.50</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>ECLERX</strong>
+                            <span class="subtle">Bet 11</span>
+                        </td>
+                        <td>7</td>
+                        <td>1,551.60</td>
+                        <td>1,486.80</td>
+                        <td>2,000.00</td>
+                        <td class="negative">INR -453.60</td>
+                        <td class="negative">-4.18%</td>
+                        <td>INR 513.20</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>PURVA</strong>
+                            <span class="subtle">Bet 12</span>
+                        </td>
+                        <td>43</td>
+                        <td>238.00</td>
+                        <td>216.95</td>
+                        <td>280.00</td>
+                        <td class="negative">INR -905.15</td>
+                        <td class="negative">-8.84%</td>
+                        <td>INR 63.05</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>SKYGOLD</strong>
+                            <span class="subtle">Bet 14</span>
+                        </td>
+                        <td>20</td>
+                        <td>492.98</td>
+                        <td>557.70</td>
+                        <td>621.00</td>
+                        <td class="positive">INR 1,294.40</td>
+                        <td class="positive">+13.13%</td>
+                        <td>INR 63.30</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>OBEROIRLTY</strong>
+                            <span class="subtle">Bet 15</span>
+                        </td>
+                        <td>6</td>
+                        <td>1,707.70</td>
+                        <td>1,928.00</td>
+                        <td>2,152.00</td>
+                        <td class="positive">INR 1,321.80</td>
+                        <td class="positive">+12.90%</td>
+                        <td>INR 224.00</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>HARIOMPIPE</strong>
+                            <span class="subtle">Bet 16</span>
+                        </td>
+                        <td>25</td>
+                        <td>415.80</td>
+                        <td>387.40</td>
+                        <td>560.00</td>
+                        <td class="negative">INR -710.00</td>
+                        <td class="negative">-6.83%</td>
+                        <td>INR 172.60</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>SHAKTIPUMP</strong>
+                            <span class="subtle">Bet 17</span>
+                        </td>
+                        <td>20</td>
+                        <td>544.60</td>
+                        <td>590.80</td>
+                        <td>800.00</td>
+                        <td class="positive">INR 924.00</td>
+                        <td class="positive">+8.48%</td>
+                        <td>INR 209.20</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>Genesys</strong>
+                            <span class="subtle">Bet 18</span>
+                        </td>
+                        <td>31</td>
+                        <td>323.00</td>
+                        <td>330.00</td>
+                        <td>500.00</td>
+                        <td class="positive">INR 217.00</td>
+                        <td class="positive">+2.17%</td>
+                        <td>INR 170.00</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>AVG</strong>
+                            <span class="subtle">Bet 19</span>
+                        </td>
+                        <td>57</td>
+                        <td>175.60</td>
+                        <td>204.33</td>
+                        <td>250.00</td>
+                        <td class="positive">INR 1,637.61</td>
+                        <td class="positive">+16.36%</td>
+                        <td>INR 45.67</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>Ashok Leyland</strong>
+                            <span class="subtle">Bet 20</span>
+                        </td>
+                        <td>100</td>
+                        <td>144.41</td>
+                        <td>164.35</td>
+                        <td>200.00</td>
+                        <td class="positive">INR 1,994.00</td>
+                        <td class="positive">+13.81%</td>
+                        <td>INR 35.65</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>AAVAS</strong>
+                            <span class="subtle">Bet 21</span>
+                        </td>
+                        <td>8</td>
+                        <td>1,423.10</td>
+                        <td>1,517.30</td>
+                        <td>1,800.00</td>
+                        <td class="positive">INR 753.60</td>
+                        <td class="positive">+6.62%</td>
+                        <td>INR 282.70</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>SUNDARMFIN</strong>
+                            <span class="subtle">Bet 22</span>
+                        </td>
+                        <td>3</td>
+                        <td>4,412.00</td>
+                        <td>4,662.20</td>
+                        <td>5,200.00</td>
+                        <td class="positive">INR 750.60</td>
+                        <td class="positive">+5.67%</td>
+                        <td>INR 537.80</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>SUDARSCHEM</strong>
+                            <span class="subtle">Bet 23</span>
+                        </td>
+                        <td>11</td>
+                        <td>924.60</td>
+                        <td>927.90</td>
+                        <td>1,150.00</td>
+                        <td class="positive">INR 36.30</td>
+                        <td class="positive">+0.36%</td>
+                        <td>INR 222.10</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>SPECTRUM</strong>
+                            <span class="subtle">Bet 24</span>
+                        </td>
+                        <td>6</td>
+                        <td>1,758.50</td>
+                        <td>1,980.60</td>
+                        <td>2,200.00</td>
+                        <td class="positive">INR 1,332.60</td>
+                        <td class="positive">+12.63%</td>
+                        <td>INR 219.40</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>SUBROS</strong>
+                            <span class="subtle">Bet 25</span>
+                        </td>
+                        <td>12</td>
+                        <td>835.85</td>
+                        <td>819.00</td>
+                        <td>1,000.00</td>
+                        <td class="negative">INR -202.20</td>
+                        <td class="negative">-2.02%</td>
+                        <td>INR 181.00</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>HERITGFOOD</strong>
+                            <span class="subtle">Bet 26</span>
+                        </td>
+                        <td>30</td>
+                        <td>338.15</td>
+                        <td>331.20</td>
+                        <td>426.00</td>
+                        <td class="negative">INR -208.50</td>
+                        <td class="negative">-2.06%</td>
+                        <td>INR 94.80</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>SAIL</strong>
+                            <span class="subtle">Bet 27</span>
+                        </td>
+                        <td>58</td>
+                        <td>175.20</td>
+                        <td>165.24</td>
+                        <td>200.00</td>
+                        <td class="negative">INR -577.68</td>
+                        <td class="negative">-5.68%</td>
+                        <td>INR 34.76</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+                </tbody>
+            </table>
+        </div>
+        <div class="pagination" data-pagination></div>
+    </section>
+
+    <section class="section">
+        <h2>Closed Positions</h2>
+        <div class="table-wrap">
+            <table class="interactive-table" data-page-size="10">
+                <thead>
+                    <tr>
+                        <th>Ticker</th>
+                        <th>Qty</th>
+                        <th>Buy</th>
+                        <th>Sell</th>
+                        <th>Realized P/L</th>
+                        <th>P/L %</th>
+                        <th>Buy Date</th>
+                        <th>Sell Date</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <tr>
+                        <td>
+                            <strong>AxisBank</strong>
+                            <span class="subtle">Bet 13</span>
+                        </td>
+                        <td>40</td>
+                        <td>1,251.50</td>
+                        <td>1,356.70</td>
+                        <td class="positive">INR 4,208.00</td>
+                        <td class="positive">+8.41%</td>
+                        <td>20/05/2026</td>
+                        <td>2026-06-12 00:00:00</td>
+                        <td><span class="pill neutral-pill">CLOSED</span></td>
+                    </tr>
+                    
+                </tbody>
+            </table>
+        </div>
+        <div class="pagination" data-pagination></div>
+    </section>
+</main>
+<script>
+(function () {
+    const money = new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: "INR",
+        maximumFractionDigits: 2
+    });
+
+    function parseDate(value) {
+        if (!value) {
+            return null;
+        }
+
+        const text = String(value).trim();
+        const match = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+        if (match) {
+            return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+        }
+
+        const parsed = new Date(text);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    function formatDate(value) {
+        const date = parseDate(value);
+        if (!date) {
+            return value || "";
+        }
+
+        return date.toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric"
+        });
+    }
+
+    function renderChart(period) {
+        const target = document.getElementById("portfolio-chart");
+        if (!target) {
+            return;
+        }
+
+        const allPoints = JSON.parse(target.getAttribute("data-points") || "[]");
+        if (!allPoints.length) {
+            target.innerHTML = '<div class="empty">No portfolio value data available.</div>';
+            return;
+        }
+
+        const datedPoints = allPoints.map((point, index) => ({
+            ...point,
+            index,
+            parsedDate: parseDate(point.date)
+        }));
+        const latestDate = datedPoints.reduce((latest, point) => {
+            if (!point.parsedDate) {
+                return latest;
+            }
+            return !latest || point.parsedDate > latest ? point.parsedDate : latest;
+        }, null);
+
+        const daysByPeriod = {
+            day: 1,
+            week: 7,
+            month: 30,
+            year: 365
+        };
+
+        let points = datedPoints;
+        if (period !== "all" && latestDate) {
+            const start = new Date(latestDate);
+            start.setDate(start.getDate() - daysByPeriod[period] + 1);
+            points = datedPoints.filter((point) => point.parsedDate && point.parsedDate >= start);
+        }
+
+        if (!points.length) {
+            points = datedPoints.slice(-1);
+        }
+
+        const width = 1120;
+        const height = 260;
+        const padX = 46;
+        const padY = 30;
+        const plotWidth = width - (padX * 2);
+        const plotHeight = height - (padY * 2);
+        const series = [
+            { key: "invested", label: "Invested", css: "invested" },
+            { key: "current", label: "Current / Realized", css: "current" },
+            { key: "expected", label: "Expected Target", css: "expected" }
+        ];
+        const values = points.flatMap((point) => series.map((item) => Number(point[item.key]) || 0));
+        const minValue = Math.min(...values);
+        const maxValue = Math.max(...values);
+        const valueRange = Math.max(maxValue - minValue, 1);
+
+        const scaled = points.map((point, index) => {
+            const x = padX + ((plotWidth / Math.max(points.length - 1, 1)) * index);
+            const yBySeries = {};
+            series.forEach((item) => {
+                const value = Number(point[item.key]) || 0;
+                yBySeries[item.key] = padY + plotHeight - ((value - minValue) / valueRange * plotHeight);
+            });
+            return { ...point, x, yBySeries };
+        });
+
+        const lines = series.map((item) => {
+            const linePoints = scaled
+                .map((point) => `${point.x.toFixed(1)},${point.yBySeries[item.key].toFixed(1)}`)
+                .join(" ");
+            return `<polyline points="${linePoints}" class="chart-line ${item.css}"></polyline>`;
+        }).join("");
+
+        const expectedPoints = scaled
+            .map((point) => `${point.x.toFixed(1)},${point.yBySeries.expected.toFixed(1)}`)
+            .join(" ");
+        const areaPoints = `${padX},${height - padY} ${expectedPoints} ${width - padX},${height - padY}`;
+        const markers = scaled.map((point) => `
+            <circle cx="${point.x.toFixed(1)}" cy="${point.yBySeries.current.toFixed(1)}" r="4">
+                <title>${point.label} - current ${money.format(point.current)} - expected ${money.format(point.expected)}</title>
+            </circle>
+        `).join("");
+        const lastPoint = points[points.length - 1];
+        const expectedReturn = (Number(lastPoint.expected) || 0) - (Number(lastPoint.invested) || 0);
+        const expectedClass = expectedReturn >= 0 ? "positive" : "negative";
+
+        target.innerHTML = `
+            <div class="chart-summary">
+                <div>
+                    <span>Current / realized</span>
+                    <strong>${money.format(lastPoint.current)}</strong>
+                </div>
+                <div>
+                    <span>Expected target value</span>
+                    <strong>${money.format(lastPoint.expected)}</strong>
+                </div>
+                <div>
+                    <span>Expected return</span>
+                    <strong class="${expectedClass}">${money.format(expectedReturn)}</strong>
+                </div>
+            </div>
+            <div class="chart-legend">
+                <span><i class="legend-dot invested"></i>Invested</span>
+                <span><i class="legend-dot current"></i>Current / realized</span>
+                <span><i class="legend-dot expected"></i>Expected target</span>
+            </div>
+            <svg class="line-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Portfolio value against invested and expected target">
+                <line x1="${padX}" y1="${height - padY}" x2="${width - padX}" y2="${height - padY}" class="axis"></line>
+                <line x1="${padX}" y1="${padY}" x2="${padX}" y2="${height - padY}" class="axis"></line>
+                <text x="${padX}" y="${height - 7}" class="chart-label">${formatDate(points[0].date)}</text>
+                <text x="${width - padX}" y="${height - 7}" class="chart-label end">${formatDate(points[points.length - 1].date)}</text>
+                <text x="${padX}" y="18" class="chart-label">${money.format(maxValue)}</text>
+                <text x="${padX}" y="${height - padY - 8}" class="chart-label">${money.format(minValue)}</text>
+                <polygon points="${areaPoints}" class="chart-area"></polygon>
+                ${lines}
+                ${markers}
+            </svg>
+        `;
+    }
+
+    document.querySelectorAll(".period-button").forEach((button) => {
+        button.addEventListener("click", () => {
+            document.querySelectorAll(".period-button").forEach((item) => item.classList.remove("active"));
+            button.classList.add("active");
+            renderChart(button.dataset.period);
+        });
+    });
+
+    function parseCellValue(text) {
+        const cleaned = text.replace(/INR|,/g, "").replace("%", "").trim();
+        const number = Number(cleaned);
+        if (!Number.isNaN(number) && cleaned !== "") {
+            return number;
+        }
+
+        const date = parseDate(text);
+        if (date) {
+            return date.getTime();
+        }
+
+        return text.toLowerCase();
+    }
+
+    function setupTable(table) {
+        const tbody = table.querySelector("tbody");
+        const pager = table.closest(".section").querySelector("[data-pagination]");
+        if (!tbody || !pager) {
+            return;
+        }
+
+        const pageSize = Number(table.dataset.pageSize || 10);
+        const state = {
+            rows: Array.from(tbody.querySelectorAll("tr")),
+            page: 1,
+            sortColumn: null,
+            sortDirection: "asc"
+        };
+
+        function renderRows() {
+            const totalPages = Math.max(Math.ceil(state.rows.length / pageSize), 1);
+            state.page = Math.min(Math.max(state.page, 1), totalPages);
+            const start = (state.page - 1) * pageSize;
+            const visibleRows = state.rows.slice(start, start + pageSize);
+
+            tbody.innerHTML = "";
+            visibleRows.forEach((row) => tbody.appendChild(row));
+
+            pager.innerHTML = `
+                <span>Page ${state.page} of ${totalPages} · ${state.rows.length} rows</span>
+                <button type="button" data-page="prev" ${state.page === 1 ? "disabled" : ""}>Prev</button>
+                <button type="button" data-page="next" ${state.page === totalPages ? "disabled" : ""}>Next</button>
+            `;
+        }
+
+        table.querySelectorAll("th").forEach((header, columnIndex) => {
+            header.classList.add("sortable");
+            header.addEventListener("click", () => {
+                const direction = state.sortColumn === columnIndex && state.sortDirection === "asc" ? "desc" : "asc";
+                state.sortColumn = columnIndex;
+                state.sortDirection = direction;
+                state.page = 1;
+
+                table.querySelectorAll("th").forEach((item) => {
+                    item.classList.remove("sorted-asc", "sorted-desc");
+                });
+                header.classList.add(direction === "asc" ? "sorted-asc" : "sorted-desc");
+
+                state.rows.sort((a, b) => {
+                    const aValue = parseCellValue(a.children[columnIndex]?.innerText || "");
+                    const bValue = parseCellValue(b.children[columnIndex]?.innerText || "");
+
+                    if (aValue < bValue) {
+                        return direction === "asc" ? -1 : 1;
+                    }
+                    if (aValue > bValue) {
+                        return direction === "asc" ? 1 : -1;
+                    }
+                    return 0;
+                });
+
+                renderRows();
+            });
+        });
+
+        pager.addEventListener("click", (event) => {
+            const button = event.target.closest("button[data-page]");
+            if (!button) {
+                return;
+            }
+
+            state.page += button.dataset.page === "next" ? 1 : -1;
+            renderRows();
+        });
+
+        renderRows();
+    }
+
+    renderChart("all");
+    document.querySelectorAll(".interactive-table").forEach(setupTable);
+}());
+</script>
+</body>
+</html>

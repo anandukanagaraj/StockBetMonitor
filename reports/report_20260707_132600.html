@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Monitor Report</title>
+<style>
+:root {
+    color-scheme: light;
+    --bg: #eef3f8;
+    --panel: #ffffff;
+    --ink: #172033;
+    --muted: #64748b;
+    --line: #dce5ef;
+    --brand: #2563eb;
+    --brand-dark: #1e3a8a;
+    --positive: #087f5b;
+    --positive-bg: #e7f8ef;
+    --negative: #c92a2a;
+    --negative-bg: #fff0f0;
+    --warning: #b76e00;
+    --warning-bg: #fff4d6;
+    --info: #1d4ed8;
+    --info-bg: #e8f0ff;
+    --shadow: 0 20px 50px rgba(21, 32, 51, 0.10);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 34rem),
+        linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+    color: var(--ink);
+    font-family: Inter, "Segoe UI", Arial, sans-serif;
+}
+
+.page {
+    width: min(1220px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 32px 0 44px;
+}
+
+.hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--brand-dark), #0f766e);
+    color: #ffffff;
+    box-shadow: var(--shadow);
+}
+
+.eyebrow {
+    margin: 0 0 8px;
+    color: #bfdbfe;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+h1 {
+    margin: 0;
+    font-size: 34px;
+    line-height: 1.1;
+}
+
+.hero-meta {
+    margin: 10px 0 0;
+    color: #dbeafe;
+}
+
+.hero-profit {
+    min-width: 230px;
+    padding: 18px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.12);
+    text-align: right;
+}
+
+.hero-profit span {
+    display: block;
+    color: #dbeafe;
+    font-size: 13px;
+}
+
+.hero-profit strong {
+    display: block;
+    margin-top: 6px;
+    font-size: 28px;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+}
+
+.card {
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: 0 10px 28px rgba(21, 32, 51, 0.06);
+}
+
+.card h2 {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.card p {
+    margin: 10px 0 0;
+    font-size: 27px;
+    font-weight: 800;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.section {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: 0 10px 28px rgba(21, 32, 51, 0.06);
+}
+
+.section + .section {
+    margin-top: 20px;
+}
+
+.section h2 {
+    margin: 0;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--line);
+    font-size: 18px;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th {
+    padding: 12px 14px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-align: right;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+th:first-child,
+td:first-child {
+    text-align: left;
+}
+
+td {
+    padding: 14px;
+    border-top: 1px solid var(--line);
+    text-align: right;
+    white-space: nowrap;
+}
+
+tbody tr:hover {
+    background: #f8fbff;
+}
+
+.subtle {
+    display: block;
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.positive {
+    color: var(--positive);
+    font-weight: 800;
+}
+
+.negative {
+    color: var(--negative);
+    font-weight: 800;
+}
+
+.neutral {
+    color: var(--muted);
+    font-weight: 800;
+}
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 96px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.pill.success {
+    background: var(--positive-bg);
+    color: var(--positive);
+}
+
+.pill.warning {
+    background: var(--warning-bg);
+    color: var(--warning);
+}
+
+.pill.info {
+    background: var(--info-bg);
+    color: var(--info);
+}
+
+.rank {
+    width: 52px;
+    color: var(--muted);
+    font-weight: 800;
+    text-align: center;
+}
+
+.empty {
+    padding: 24px;
+    color: var(--muted);
+    text-align: center;
+}
+
+@media (max-width: 900px) {
+    .hero {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .hero-profit {
+        text-align: left;
+    }
+
+    .cards,
+    .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .page {
+        width: min(100% - 20px, 1220px);
+        padding-top: 10px;
+    }
+
+    h1 {
+        font-size: 27px;
+    }
+
+    .cards,
+    .grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+</head>
+<body>
+<main class="page">
+    <section class="hero">
+        <div>
+            <p class="eyebrow">Daily Portfolio Report</p>
+            <h1>Stock Monitor</h1>
+            <p class="hero-meta">Generated 07-Jul-2026 at 01:26 PM</p>
+        </div>
+        <div class="hero-profit">
+            <span>Total profit / loss</span>
+            <strong class="positive">INR 2,702.00</strong>
+            <span class="positive">+5.03%</span>
+        </div>
+    </section>
+
+    <section class="cards" aria-label="Summary">
+        <article class="card">
+            <h2>Positions</h2>
+            <p>3</p>
+        </article>
+        <article class="card">
+            <h2>Winners</h2>
+            <p class="positive">2</p>
+        </article>
+        <article class="card">
+            <h2>Losers</h2>
+            <p class="negative">1</p>
+        </article>
+        <article class="card">
+            <h2>Current Value</h2>
+            <p>INR 56,452.00</p>
+        </article>
+    </section>
+
+    <section class="grid">
+        <article class="section">
+            <h2>Top 5 Winners</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Rank</th><th>Ticker</th><th>P/L %</th></tr>
+                    </thead>
+                    <tbody>
+                        
+                    <tr>
+                        <td class="rank">1</td>
+                        <td><strong>INFY.NS</strong></td>
+                        <td class="positive">+9.52%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">2</td>
+                        <td><strong>RELIANCE.NS</strong></td>
+                        <td class="positive">+8.77%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">3</td>
+                        <td><strong>TCS.NS</strong></td>
+                        <td class="negative">-4.61%</td>
+                    </tr>
+                    
+                    </tbody>
+                </table>
+            </div>
+        </article>
+
+        <article class="section">
+            <h2>Top 5 Losers</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Rank</th><th>Ticker</th><th>P/L %</th></tr>
+                    </thead>
+                    <tbody>
+                        
+                    <tr>
+                        <td class="rank">1</td>
+                        <td><strong>TCS.NS</strong></td>
+                        <td class="negative">-4.61%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">2</td>
+                        <td><strong>RELIANCE.NS</strong></td>
+                        <td class="positive">+8.77%</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">3</td>
+                        <td><strong>INFY.NS</strong></td>
+                        <td class="positive">+9.52%</td>
+                    </tr>
+                    
+                    </tbody>
+                </table>
+            </div>
+        </article>
+
+        <article class="section">
+            <h2>Near Target</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Rank</th><th>Ticker</th><th>Remaining</th></tr>
+                    </thead>
+                    <tbody>
+                        
+                    <tr>
+                        <td class="rank">1</td>
+                        <td><strong>RELIANCE.NS</strong></td>
+                        <td class="">INR 54.50</td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td class="rank">2</td>
+                        <td><strong>INFY.NS</strong></td>
+                        <td class="">INR 12.00</td>
+                    </tr>
+                    
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    </section>
+
+    <section class="section">
+        <h2>Portfolio</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Ticker</th>
+                        <th>Qty</th>
+                        <th>Buy</th>
+                        <th>Current</th>
+                        <th>Target</th>
+                        <th>P/L</th>
+                        <th>P/L %</th>
+                        <th>Remaining</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <tr>
+                        <td>
+                            <strong>RELIANCE.NS</strong>
+                            <span class="subtle">Bet 1</span>
+                        </td>
+                        <td>10</td>
+                        <td>2,800.00</td>
+                        <td>3,045.50</td>
+                        <td>3,100.00</td>
+                        <td class="positive">INR 2,455.00</td>
+                        <td class="positive">+8.77%</td>
+                        <td>INR 54.50</td>
+                        <td><span class="pill warning">Near Target</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>TCS.NS</strong>
+                            <span class="subtle">Bet 2</span>
+                        </td>
+                        <td>4</td>
+                        <td>3,900.00</td>
+                        <td>3,720.25</td>
+                        <td>4,300.00</td>
+                        <td class="negative">INR -719.00</td>
+                        <td class="negative">-4.61%</td>
+                        <td>INR 579.75</td>
+                        <td><span class="pill info">Hold</span></td>
+                    </tr>
+                    
+
+                    <tr>
+                        <td>
+                            <strong>INFY.NS</strong>
+                            <span class="subtle">Bet 3</span>
+                        </td>
+                        <td>7</td>
+                        <td>1,450.00</td>
+                        <td>1,588.00</td>
+                        <td>1,600.00</td>
+                        <td class="positive">INR 966.00</td>
+                        <td class="positive">+9.52%</td>
+                        <td>INR 12.00</td>
+                        <td><span class="pill warning">Near Target</span></td>
+                    </tr>
+                    
+                </tbody>
+            </table>
+        </div>
+    </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,70 @@
+2026-07-07 10:59:18,990 | INFO | ========================================
+2026-07-07 10:59:18,991 | INFO | Stock Monitor Starting...
+2026-07-07 10:59:18,991 | INFO | ========================================
+2026-07-07 10:59:18,993 | INFO | Excel File   : C:\Anand\StockMonitor\data\Portfolio.xlsx
+2026-07-07 10:59:18,993 | INFO | Market Opens : 09:15
+2026-07-07 10:59:18,993 | INFO | Market Closes: 15:30
+2026-07-07 10:59:18,993 | INFO | Report Time  : 15:35
+2026-07-07 10:59:19,025 | INFO | 
+2026-07-07 10:59:19,026 | INFO | Open Positions : 26
+2026-07-07 10:59:20,773 | INFO | 
+2026-07-07 10:59:20,773 | INFO | ==============================================================================================================
+2026-07-07 10:59:20,774 | INFO | Ticker            Current    Target       P/L ₹     P/L %      Remain            Status
+2026-07-07 10:59:20,775 | INFO | ==============================================================================================================
+2026-07-07 10:59:20,776 | INFO | TANLA | Bet=1 | Status=HOLD
+2026-07-07 10:59:20,776 | INFO | TANLA              539.90    635.00      730.00      7.25       95.10              HOLD
+2026-07-07 10:59:20,776 | INFO | CHAMBLFERT | Bet=2 | Status=HOLD
+2026-07-07 10:59:20,776 | INFO | CHAMBLFERT         470.85    520.00     1077.50     10.08       49.15              HOLD
+2026-07-07 10:59:20,777 | INFO | MOTILALOFS | Bet=3 | Status=HOLD
+2026-07-07 10:59:20,777 | INFO | MOTILALOFS         941.75   1000.00     3776.25     36.49       58.25              HOLD
+2026-07-07 10:59:20,777 | INFO | KalyaniKwellers | Bet=4 | Status=HOLD
+2026-07-07 10:59:20,777 | INFO | KalyaniKwellers    358.00    500.00    -1007.50     -9.77      142.00              HOLD
+2026-07-07 10:59:20,777 | INFO | ICICIB22 | Bet=5 | Status=HOLD
+2026-07-07 10:59:20,778 | INFO | ICICIB22           118.03    130.00    -2775.00     -4.49       11.97              HOLD
+2026-07-07 10:59:20,778 | INFO | DEVYANI | Bet=6 | Status=HOLD
+2026-07-07 10:59:20,778 | INFO | DEVYANI            113.45    140.00      112.00      1.00       26.55              HOLD
+2026-07-07 10:59:20,778 | INFO | IDEAFORGE | Bet=7 | Status=HOLD
+2026-07-07 10:59:20,778 | INFO | IDEAFORGE          828.90   1026.00      223.50      1.83      197.10              HOLD
+2026-07-07 10:59:20,779 | INFO | NDRAUTO | Bet=8 | Status=HOLD
+2026-07-07 10:59:20,779 | INFO | NDRAUTO            870.40   1000.00      785.20      7.46      129.60              HOLD
+2026-07-07 10:59:20,779 | INFO | CARBORUNIV | Bet=9 | Status=HOLD
+2026-07-07 10:59:20,779 | INFO | CARBORUNIV        1113.00   1380.00      178.00      1.63      267.00              HOLD
+2026-07-07 10:59:20,779 | INFO | ATULAUTO | Bet=10 | Status=HOLD
+2026-07-07 10:59:20,779 | INFO | ATULAUTO           491.50    600.00     -513.00     -4.96      108.50              HOLD
+2026-07-07 10:59:20,780 | INFO | ECLERX | Bet=11 | Status=HOLD
+2026-07-07 10:59:20,780 | INFO | ECLERX            1486.80   2000.00     -453.60     -4.18      513.20              HOLD
+2026-07-07 10:59:20,780 | INFO | PURVA | Bet=12 | Status=HOLD
+2026-07-07 10:59:20,780 | INFO | PURVA              216.95    280.00     -905.15     -8.84       63.05              HOLD
+2026-07-07 10:59:20,781 | INFO | SKYGOLD | Bet=14 | Status=HOLD
+2026-07-07 10:59:20,781 | INFO | SKYGOLD            557.70    621.00     1294.40     13.13       63.30              HOLD
+2026-07-07 10:59:20,781 | INFO | OBEROIRLTY | Bet=15 | Status=HOLD
+2026-07-07 10:59:20,781 | INFO | OBEROIRLTY        1928.00   2152.00     1321.80     12.90      224.00              HOLD
+2026-07-07 10:59:20,781 | INFO | HARIOMPIPE | Bet=16 | Status=HOLD
+2026-07-07 10:59:20,782 | INFO | HARIOMPIPE         387.40    560.00     -710.00     -6.83      172.60              HOLD
+2026-07-07 10:59:20,782 | INFO | SHAKTIPUMP | Bet=17 | Status=HOLD
+2026-07-07 10:59:20,782 | INFO | SHAKTIPUMP         590.80    800.00      924.00      8.48      209.20              HOLD
+2026-07-07 10:59:20,782 | INFO | Genesys | Bet=18 | Status=HOLD
+2026-07-07 10:59:20,782 | INFO | Genesys            330.00    500.00      217.00      2.17      170.00              HOLD
+2026-07-07 10:59:20,783 | INFO | AVG | Bet=19 | Status=HOLD
+2026-07-07 10:59:20,783 | INFO | AVG                204.33    250.00     1637.61     16.36       45.67              HOLD
+2026-07-07 10:59:20,783 | INFO | Ashok Leyland | Bet=20 | Status=HOLD
+2026-07-07 10:59:20,783 | INFO | Ashok Leyland      164.35    200.00     1994.00     13.81       35.65              HOLD
+2026-07-07 10:59:20,784 | INFO | AAVAS | Bet=21 | Status=HOLD
+2026-07-07 10:59:20,784 | INFO | AAVAS             1517.30   1800.00      753.60      6.62      282.70              HOLD
+2026-07-07 10:59:20,784 | INFO | SUNDARMFIN | Bet=22 | Status=HOLD
+2026-07-07 10:59:20,784 | INFO | SUNDARMFIN        4662.20   5200.00      750.60      5.67      537.80              HOLD
+2026-07-07 10:59:20,784 | INFO | SUDARSCHEM | Bet=23 | Status=HOLD
+2026-07-07 10:59:20,784 | INFO | SUDARSCHEM         927.90   1150.00       36.30      0.36      222.10              HOLD
+2026-07-07 10:59:20,785 | INFO | SPECTRUM | Bet=24 | Status=HOLD
+2026-07-07 10:59:20,785 | INFO | SPECTRUM          1980.60   2200.00     1332.60     12.63      219.40              HOLD
+2026-07-07 10:59:20,785 | INFO | SUBROS | Bet=25 | Status=HOLD
+2026-07-07 10:59:20,785 | INFO | SUBROS             819.00   1000.00     -202.20     -2.02      181.00              HOLD
+2026-07-07 10:59:20,785 | INFO | HERITGFOOD | Bet=26 | Status=HOLD
+2026-07-07 10:59:20,785 | INFO | HERITGFOOD         331.20    426.00     -208.50     -2.06       94.80              HOLD
+2026-07-07 10:59:20,786 | INFO | SAIL | Bet=27 | Status=HOLD
+2026-07-07 10:59:20,786 | INFO | SAIL               165.24    200.00     -577.68     -5.68       34.76              HOLD
+2026-07-07 10:59:20,842 | INFO | 
+2026-07-07 10:59:20,843 | INFO | Updated 26 rows in Excel.
+2026-07-07 10:59:20,844 | INFO | 
+2026-07-07 10:59:20,846 | INFO | 
+2026-07-07 10:59:20,846 | INFO | HTML report generated: reports/report_20260707_105920.html
