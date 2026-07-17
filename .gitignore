@@ -16,3 +16,4 @@ exports/
 data/index_membership_snapshot.json
 data/scheduler_state.json
 data/yfinance_cache/
+data/backups/
