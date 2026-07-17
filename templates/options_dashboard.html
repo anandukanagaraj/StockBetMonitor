@@ -1,0 +1,627 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="manage-hero options-hero">
+  <div>
+    <p class="eyebrow">V3 Options</p>
+    <h1>{% if selected_strategy_type %}{{ selected_strategy_type }} Performance{% else %}Option Bets Tracker{% endif %}</h1>
+    <p>V2 stock bets stay intact here, with option strategy tracking added on top.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button primary" href="{{ url_for('new_option_strategy') }}">Add Option Bet</a>
+    <a class="button" href="{{ url_for('index') }}">Dashboard</a>
+  </div>
+</section>
+
+<section class="option-filter-card">
+  <div>
+    <span>Strategy Filter</span>
+    <strong>{{ selected_strategy_type or "All Strategies" }}</strong>
+  </div>
+  <form method="get" action="{{ url_for('options_dashboard') }}" class="option-filter-form">
+    <label>
+      View
+      <select name="strategy_type" onchange="this.form.submit()">
+        <option value="">All Strategies</option>
+        {% for strategy_type in strategy_types %}
+          <option value="{{ strategy_type }}" {% if strategy_type == selected_strategy_type %}selected{% endif %}>{{ strategy_type }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if selected_strategy_type %}
+      <a class="button" href="{{ url_for('options_dashboard') }}">Clear</a>
+    {% endif %}
+  </form>
+</section>
+
+<section class="metrics option-metrics">
+  <article>
+    <span>Total Option Bets</span>
+    <strong>{{ metrics.total }}</strong>
+  </article>
+  <article>
+    <span>Open</span>
+    <strong>{{ metrics.open }}</strong>
+  </article>
+  <article>
+    <span>Closed</span>
+    <strong>{{ metrics.closed }}</strong>
+  </article>
+  <article>
+    <span>Outcome Rate</span>
+    <strong class="{{ pl_class(metrics.outcome_rate) }}">{{ pct(metrics.outcome_rate).replace("+", "") }}</strong>
+    <small>{{ metrics.wins }} wins &middot; {{ metrics.losses }} losses</small>
+  </article>
+  <article>
+    <span>Realized P/L</span>
+    <strong class="{{ pl_class(metrics.realized_pl) }}">{{ money(metrics.realized_pl) }}</strong>
+  </article>
+  <article>
+    <span>Strategy Return</span>
+    <strong class="{{ pl_class(metrics.avg_return) }}">{{ pct(metrics.avg_return) }}</strong>
+  </article>
+</section>
+
+<section class="management-panel option-growth-panel">
+  <div class="panel-head">
+    <h2>Options Growth</h2>
+    <p>Cumulative realized strategy P/L over time for the current strategy filter.</p>
+  </div>
+  <div class="option-growth-chart" data-growth-chart='{{ growth_chart|tojson }}'>
+    <canvas width="1100" height="320" aria-label="Options growth chart"></canvas>
+    <div class="chart-empty">No closed option bets yet.</div>
+    <div class="option-chart-tooltip" data-chart-tooltip></div>
+  </div>
+  <div class="option-chart-legend">
+    <span><i class="win-dot"></i> Profit booked</span>
+    <span><i class="loss-dot"></i> Loss booked</span>
+    <span><i class="line-dot"></i> Cumulative P/L</span>
+  </div>
+</section>
+
+<section class="management-panel">
+  <div class="panel-head">
+    <h2>{% if selected_strategy_type %}{{ selected_strategy_type }} What-if{% else %}What-if Summary{% endif %}</h2>
+    <p>Compares actual strategy P/L against long option-only legs and a &#8377;10L long stock position. Charges include approximate brokerage, STT, exchange charges, SEBI charges, stamp duty, GST, and DP charges where applicable.</p>
+  </div>
+  <div class="table-wrap">
+    <table class="management-table option-table option-whatif-table">
+      <thead>
+        <tr>
+          <th>Strategy Type</th>
+          <th class="number">Actual</th>
+          <th class="number">Long Call Only</th>
+          <th class="number">Long Put Only</th>
+          <th class="number">Long Stock &#8377;10L</th>
+          <th>Best</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in metrics.by_strategy %}
+          <tr data-whatif-row="{{ loop.index }}">
+            <td data-sort-value="{{ row.strategy_type|lower }}"><strong>{{ row.strategy_type }}</strong></td>
+            <td class="number {{ pl_class(row.actual_net) }}" data-sort-value="{{ row.actual_net if row.actual_net is not none else -999999999 }}">
+              <strong>{{ money(row.realized_pl) }}</strong>
+              <span class="whatif-cost">Charges {{ money(row.actual_brokerage) }}</span>
+              <span class="whatif-net">Net {{ money(row.actual_net) }}</span>
+            </td>
+            <td class="number {{ pl_class(row.long_call_pl) }}" data-sort-value="{{ row.long_call_pl if row.long_call_pl is not none else -999999999 }}">
+              {% if row.long_call_pl is not none %}
+                <button class="whatif-link {{ pl_class(row.long_call_pl) }}" type="button" data-toggle-simulation="call-{{ loop.index }}">{{ money(row.long_call_pl) }}</button>
+                <span class="whatif-cost">Charges {{ money(row.long_call_brokerage) }}</span>
+                <span class="whatif-net">Net {{ money(row.long_call_net) }}</span>
+              {% else %}
+                {{ money(row.long_call_pl) }}
+              {% endif %}
+            </td>
+            <td class="number {{ pl_class(row.long_put_pl) }}" data-sort-value="{{ row.long_put_pl if row.long_put_pl is not none else -999999999 }}">
+              <strong>{{ money(row.long_put_pl) }}</strong>
+              {% if row.long_put_pl is not none %}
+                <span class="whatif-cost">Charges {{ money(row.long_put_brokerage) }}</span>
+                <span class="whatif-net">Net {{ money(row.long_put_net) }}</span>
+              {% endif %}
+            </td>
+            <td class="number {{ pl_class(row.long_stock_pl) }}" data-sort-value="{{ row.long_stock_pl if row.long_stock_pl is not none else -999999999 }}">
+              {% if row.long_stock_pl is not none %}
+                <button class="whatif-link {{ pl_class(row.long_stock_pl) }}" type="button" data-toggle-simulation="stock-{{ loop.index }}">{{ money(row.long_stock_pl) }}</button>
+                <span class="whatif-cost">Charges {{ money(row.long_stock_brokerage) }}</span>
+                <span class="whatif-net">Net {{ money(row.long_stock_net) }}</span>
+              {% else %}
+                {{ money(row.long_stock_pl) }}
+              {% endif %}
+            </td>
+            <td data-sort-value="{{ row.best|lower }}">{{ row.best }}</td>
+          </tr>
+          <tr class="simulation-row is-hidden" data-simulation-row="call-{{ loop.index }}">
+            <td colspan="6">
+              <div class="simulation-detail">
+                <div class="simulation-head">
+                  <strong>{{ row.strategy_type }} · Long Call Only trades</strong>
+                  <span>{{ row.long_call_trades|length }} simulated trades</span>
+                </div>
+                <table class="simulation-table">
+                  <thead>
+                    <tr>
+                      <th>Bet</th>
+                      <th>Underlying</th>
+                      <th>Date</th>
+                      <th class="number">Simulated P/L</th>
+                      <th class="number">Charges</th>
+                      <th class="number">Net P/L</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for trade in row.long_call_trades %}
+                      <tr>
+                        <td>#{{ trade.bet_no }}</td>
+                        <td>{{ trade.underlying }}</td>
+                        <td>{{ trade.date }}</td>
+                        <td class="number {{ pl_class(trade.pl) }}">{{ money(trade.pl) }}</td>
+                        <td class="number">{{ money(trade.charges) }}</td>
+                        <td class="number {{ pl_class(trade.net) }}">{{ money(trade.net) }}</td>
+                      </tr>
+                    {% else %}
+                      <tr><td colspan="6" class="empty">No long call leg available for this strategy.</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          </tr>
+          <tr class="simulation-row is-hidden" data-simulation-row="stock-{{ loop.index }}">
+            <td colspan="6">
+              <div class="simulation-detail">
+                <div class="simulation-head">
+                  <strong>{{ row.strategy_type }} · Long Stock &#8377;10L trades</strong>
+                  <span>{{ row.long_stock_trades|length }} simulated trades</span>
+                </div>
+                <table class="simulation-table">
+                  <thead>
+                    <tr>
+                      <th>Bet</th>
+                      <th>Underlying</th>
+                      <th>Date</th>
+                      <th class="number">Stock Move</th>
+                      <th class="number">Simulated P/L</th>
+                      <th class="number">Charges</th>
+                      <th class="number">Net P/L</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for trade in row.long_stock_trades %}
+                      <tr>
+                        <td>#{{ trade.bet_no }}</td>
+                        <td>{{ trade.underlying }}</td>
+                        <td>{{ trade.date }}</td>
+                        <td class="number {{ pl_class(trade.stock_move_pct) }}">{{ pct(trade.stock_move_pct) }}</td>
+                        <td class="number {{ pl_class(trade.pl) }}">{{ money(trade.pl) }}</td>
+                        <td class="number">{{ money(trade.charges) }}</td>
+                        <td class="number {{ pl_class(trade.net) }}">{{ money(trade.net) }}</td>
+                      </tr>
+                    {% else %}
+                      <tr><td colspan="7" class="empty">Stock movement is not available for these bets yet.</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="6" class="empty">No what-if comparison yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="management-panel">
+  <div class="panel-head">
+    <h2>Option Bets</h2>
+    <p>Each row is one option bet. Sort the list or open a bet to inspect its legs.</p>
+  </div>
+  <div class="table-wrap">
+    <table class="management-table option-table option-bets-table option-sortable-table" data-page-size="10">
+      <colgroup>
+        <col class="bet-no-col">
+        <col class="strategy-col">
+        <col class="underlying-col">
+        <col class="date-col">
+        <col class="date-col">
+        <col class="legs-col">
+        <col class="pl-col">
+        <col class="pct-col">
+        <col class="status-col">
+        <col class="actions-col">
+      </colgroup>
+      <thead>
+        <tr>
+          <th data-sort="number">Bet No</th>
+          <th data-sort="text">Strategy Type</th>
+          <th data-sort="text">Underlying</th>
+          <th data-sort="text">Buy Date</th>
+          <th data-sort="text">Sell Date</th>
+          <th class="number" data-sort="number">Legs</th>
+          <th class="number" data-sort="number">P/L</th>
+          <th class="number" data-sort="number">P/L %</th>
+          <th data-sort="text">Status</th>
+          <th class="number">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in strategies %}
+          <tr data-option-row data-strategy-id="{{ row.id }}">
+            <td data-sort-value="{{ row.bet_no or row.strategy_no }}">
+              <button class="row-expander" type="button" data-expand-row="{{ row.id }}" aria-expanded="false" aria-label="Show option legs for bet {{ row.bet_no or row.strategy_no }}">+</button>
+              <span>{{ row.bet_no or row.strategy_no }}</span>
+            </td>
+            <td data-sort-value="{{ row.strategy_type|lower }}">
+              <strong>{{ row.strategy_type }}</strong>
+              {% if row.is_test_data %}<span class="subtle">Test data</span>{% endif %}
+            </td>
+            <td data-sort-value="{{ row.underlying|lower }}">{{ row.underlying }}</td>
+            <td data-sort-value="{{ row.buy_date or '' }}">{{ row.buy_date }}</td>
+            <td data-sort-value="{{ row.sell_date or '' }}">{{ row.sell_date or "-" }}</td>
+            <td class="number" data-sort-value="{{ row.leg_count }}">{{ row.leg_count }}</td>
+            <td class="number {{ pl_class(row.strategy_pl) }}" data-sort-value="{{ row.strategy_pl if row.strategy_pl is not none else 0 }}">{{ money(row.strategy_pl) }}</td>
+            <td class="number {{ pl_class(row.display_pl_pct) }}" data-sort-value="{{ row.display_pl_pct if row.display_pl_pct is not none else 0 }}">{{ pct(row.display_pl_pct) }}</td>
+            <td data-sort-value="{{ row.status|lower }}"><span class="status {{ 'closed' if row.status == 'Closed' else '' }}">{{ row.status }}</span></td>
+            <td class="actions">
+              <a class="icon-button" href="{{ url_for('option_strategy_detail', strategy_id=row.id) }}" aria-label="View option bet {{ row.bet_no or row.strategy_no }}" title="View">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              </a>
+              <a class="icon-button" href="{{ url_for('edit_option_strategy', strategy_id=row.id) }}" aria-label="Edit option bet {{ row.bet_no or row.strategy_no }}" title="Edit">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg>
+              </a>
+              {% if row.status != "Closed" or row.is_test_data %}
+                <form method="post" action="{{ url_for('delete_option_strategy_route', strategy_id=row.id) }}" onsubmit="return confirm('Remove option bet {{ row.bet_no or row.strategy_no }}?');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="icon-button danger" type="submit" aria-label="Remove option bet {{ row.bet_no or row.strategy_no }}" title="Remove">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+                  </button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+          <tr class="option-leg-row" data-detail-for="{{ row.id }}" hidden>
+            <td colspan="10">
+              <div class="option-leg-detail">
+                <table class="leg-detail-table">
+                  <tbody>
+                    {% for leg in row.legs %}
+                      <tr>
+                        <td>{{ leg.leg_no }}</td>
+                        <td><span class="leg-action {{ leg.action|lower }}">{{ leg.action }}</span></td>
+                        <td>
+                          <strong>{{ leg.ticker }}</strong>
+                          {% if leg.option_type %}<span class="subtle">{{ leg.option_type }} {{ number(leg.strike) if leg.strike is not none else "" }}</span>{% endif %}
+                        </td>
+                        <td class="number">{{ number(leg.qty) }}</td>
+                          <td class="number">{{ money(leg.buy_price) }}</td>
+                          <td class="number">{{ money(leg.sell_price) }}</td>
+                        <td class="number {{ pl_class(leg.achieved_pl) }}">{{ money(leg.achieved_pl) }}</td>
+                        <td><span class="status {{ 'closed' if leg.status == 'Closed' else '' }}">{{ leg.status }}</span></td>
+                      </tr>
+                    {% else %}
+                      <tr>
+                        <td colspan="8" class="empty">No legs recorded for this option bet.</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="10" class="empty">No option bets yet. Add the first one to start V3.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-pagination" data-option-pagination></div>
+</section>
+
+<script>
+(function () {
+  function formatMoney(value) {
+    const sign = value < 0 ? "-" : "";
+    const absolute = Math.abs(value);
+    return `${sign}₹${absolute.toLocaleString("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
+  }
+
+  function formatDate(value) {
+    if (!value) return "-";
+    const date = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+  }
+
+  document.querySelectorAll("[data-growth-chart]").forEach((chart) => {
+    const points = JSON.parse(chart.dataset.growthChart || "[]");
+    const canvas = chart.querySelector("canvas");
+    const empty = chart.querySelector(".chart-empty");
+    const tooltip = chart.querySelector("[data-chart-tooltip]");
+    const ctx = canvas.getContext("2d");
+
+    if (!points.length) {
+      canvas.style.display = "none";
+      empty.style.display = "grid";
+      return;
+    }
+
+    empty.style.display = "none";
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = { top: 28, right: 72, bottom: 48, left: 58 };
+    const values = points.map((point) => point.value);
+    const minValue = Math.min(0, ...values);
+    const maxValue = Math.max(0, ...values);
+    const range = maxValue - minValue || 1;
+
+    function xFor(index) {
+      if (points.length === 1) {
+        return padding.left + (width - padding.left - padding.right) / 2;
+      }
+      return padding.left + (index / (points.length - 1)) * (width - padding.left - padding.right);
+    }
+
+    function yFor(value) {
+      return padding.top + (1 - ((value - minValue) / range)) * (height - padding.top - padding.bottom);
+    }
+
+    const coords = points.map((point, index) => ({
+      ...point,
+      x: xFor(index),
+      y: yFor(point.value),
+    }));
+    const zeroY = yFor(0);
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.font = "12px Inter, Arial, sans-serif";
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#dbe3ef";
+    ctx.beginPath();
+    ctx.moveTo(padding.left, zeroY);
+    ctx.lineTo(width - padding.right, zeroY);
+    ctx.stroke();
+
+    [minValue, 0, maxValue].forEach((value) => {
+      const y = yFor(value);
+      ctx.fillStyle = "#64748b";
+      ctx.textAlign = "right";
+      ctx.fillText(formatMoney(value), width - 12, y + 4);
+      ctx.strokeStyle = value === 0 ? "#94a3b8" : "#eef2f7";
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(width - padding.right, y);
+      ctx.stroke();
+    });
+
+    const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+    gradient.addColorStop(0, "rgba(14, 165, 233, .26)");
+    gradient.addColorStop(1, "rgba(14, 165, 233, .04)");
+    ctx.beginPath();
+    coords.forEach((point, index) => {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.lineTo(coords[coords.length - 1].x, zeroY);
+    ctx.lineTo(coords[0].x, zeroY);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    ctx.beginPath();
+    coords.forEach((point, index) => {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.strokeStyle = "#0284c7";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    coords.forEach((point) => {
+      ctx.beginPath();
+      if (point.outcome === "loss") {
+        ctx.fillStyle = "#dc2626";
+      } else if (point.outcome === "win") {
+        ctx.fillStyle = "#f59e0b";
+      } else {
+        ctx.fillStyle = "#64748b";
+      }
+      ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+
+    const labelIndexes = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
+    labelIndexes.forEach((index) => {
+      const point = coords[index];
+      ctx.fillStyle = "#475569";
+      ctx.textAlign = index === 0 ? "left" : index === points.length - 1 ? "right" : "center";
+      ctx.fillText(formatDate(point.date), point.x, height - 18);
+    });
+
+    canvas.addEventListener("mousemove", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) * (canvas.width / rect.width);
+      const nearest = coords.reduce((best, point) => {
+        const distance = Math.abs(point.x - x);
+        return distance < best.distance ? { point, distance } : best;
+      }, { point: coords[0], distance: Infinity }).point;
+      tooltip.innerHTML = `
+        <strong>${nearest.label}</strong>
+        <span>${nearest.underlying} · ${formatDate(nearest.date)}</span>
+        <span>Booked: ${formatMoney(nearest.pl)}</span>
+        <span>Total: ${formatMoney(nearest.value)}</span>
+      `;
+      tooltip.style.display = "grid";
+      tooltip.style.left = `${Math.min(Math.max(event.offsetX + 14, 12), chart.clientWidth - 190)}px`;
+      tooltip.style.top = `${Math.max(event.offsetY - 76, 12)}px`;
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+      tooltip.style.display = "none";
+    });
+  });
+
+  document.querySelectorAll(".option-sortable-table").forEach((table) => {
+    const tbody = table.tBodies[0];
+    const panel = table.closest(".management-panel");
+    const pager = panel ? panel.querySelector("[data-option-pagination]") : null;
+    const pageSize = Number(table.dataset.pageSize || 0);
+    const directRows = Array.from(tbody.children).filter((row) => row.tagName === "TR");
+    const emptyRows = directRows.filter((row) => row.querySelector(".empty") && !row.dataset.detailFor);
+    const detailRows = new Map(
+      directRows.filter((row) => row.matches("[data-detail-for]")).map((row) => [row.dataset.detailFor, row])
+    );
+    let rows = directRows.filter((row) => row.matches("[data-option-row]"));
+    let page = 1;
+
+    function cellValue(cell, numeric) {
+      const raw = cell.dataset.sortValue || cell.textContent.trim();
+      if (!numeric) {
+        return raw.toLowerCase();
+      }
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function renderPage() {
+      if (!pageSize || !pager) {
+        return;
+      }
+
+      const totalPages = Math.max(Math.ceil(rows.length / pageSize), 1);
+      page = Math.min(Math.max(page, 1), totalPages);
+      const start = (page - 1) * pageSize;
+      tbody.innerHTML = "";
+      if (!rows.length) {
+        emptyRows.forEach((row) => tbody.appendChild(row));
+        if (pager) {
+          pager.innerHTML = "";
+        }
+        return;
+      }
+      rows.slice(start, start + pageSize).forEach((row) => appendRowWithDetail(row));
+
+      if (rows.length <= pageSize) {
+        pager.innerHTML = rows.length ? `<span>${rows.length} option bets</span>` : "";
+        return;
+      }
+
+      const firstRow = rows.length ? start + 1 : 0;
+      const lastRow = Math.min(start + pageSize, rows.length);
+      pager.innerHTML = `
+        <span>Page ${page} of ${totalPages} &middot; ${firstRow}-${lastRow} of ${rows.length} option bets</span>
+        <button class="button" type="button" data-page="prev" ${page === 1 ? "disabled" : ""}>Prev</button>
+        <button class="button" type="button" data-page="next" ${page === totalPages ? "disabled" : ""}>Next</button>
+      `;
+    }
+
+    function appendRowWithDetail(row) {
+      tbody.appendChild(row);
+      const detailRow = detailRows.get(row.dataset.strategyId);
+      if (detailRow) {
+        tbody.appendChild(detailRow);
+      }
+    }
+
+    table.querySelectorAll("th[data-sort]").forEach((header, columnIndex) => {
+      header.classList.add("sortable-heading");
+      header.addEventListener("click", () => {
+        const direction = header.dataset.direction === "asc" ? "desc" : "asc";
+        table.querySelectorAll("th[data-sort]").forEach((item) => {
+          item.dataset.direction = "";
+          item.classList.remove("sorted-asc", "sorted-desc");
+        });
+        header.dataset.direction = direction;
+        header.classList.add(direction === "asc" ? "sorted-asc" : "sorted-desc");
+
+        rows.sort((leftRow, rightRow) => {
+          const numeric = header.dataset.sort === "number";
+          const left = cellValue(leftRow.cells[columnIndex], numeric);
+          const right = cellValue(rightRow.cells[columnIndex], numeric);
+          if (left < right) return direction === "asc" ? -1 : 1;
+          if (left > right) return direction === "asc" ? 1 : -1;
+          return 0;
+        });
+        page = 1;
+
+        if (pageSize) {
+          renderPage();
+        } else {
+          tbody.innerHTML = "";
+          rows.forEach((row) => appendRowWithDetail(row));
+        }
+      });
+    });
+
+    if (pager) {
+      pager.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-page]");
+        if (!button) {
+          return;
+        }
+        page += button.dataset.page === "next" ? 1 : -1;
+        renderPage();
+      });
+    }
+
+    renderPage();
+  });
+
+  document.addEventListener("click", (event) => {
+    const simulationButton = event.target.closest("[data-toggle-simulation]");
+    if (simulationButton) {
+      const row = document.querySelector(`[data-simulation-row="${simulationButton.dataset.toggleSimulation}"]`);
+      if (!row) {
+        return;
+      }
+      const isHidden = row.classList.contains("is-hidden");
+      row.closest("tbody").querySelectorAll("[data-simulation-row]").forEach((item) => {
+        if (item !== row) {
+          item.classList.add("is-hidden");
+        }
+      });
+      row.closest("tbody").querySelectorAll("[data-toggle-simulation]").forEach((item) => {
+        if (item !== simulationButton) {
+          item.classList.remove("is-active");
+        }
+      });
+      row.classList.toggle("is-hidden", !isHidden);
+      simulationButton.classList.toggle("is-active", isHidden);
+      return;
+    }
+
+    const button = event.target.closest("[data-expand-row]");
+    if (!button) {
+      return;
+    }
+    const detailRow = document.querySelector(`[data-detail-for="${button.dataset.expandRow}"]`);
+    if (!detailRow) {
+      return;
+    }
+    const shouldOpen = button.getAttribute("aria-expanded") !== "true";
+    const tableBody = detailRow.closest("tbody");
+    tableBody.querySelectorAll("[data-detail-for]").forEach((row) => {
+      row.hidden = true;
+    });
+    tableBody.querySelectorAll("[data-expand-row]").forEach((item) => {
+      item.setAttribute("aria-expanded", "false");
+      item.textContent = "+";
+    });
+    if (shouldOpen) {
+      button.setAttribute("aria-expanded", "true");
+      button.textContent = "−";
+      detailRow.hidden = false;
+    }
+  });
+})();
+</script>
+{% endblock %}

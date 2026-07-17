@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="manage-hero options-hero">
+  <div>
+    <p class="eyebrow">Option Bet {{ strategy.strategy_no }}</p>
+    <h1>{{ strategy.strategy_type }} · {{ strategy.underlying }}</h1>
+    <p>{{ strategy.buy_date }}{% if strategy.sell_date %} to {{ strategy.sell_date }}{% endif %} · {{ strategy.status }}</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button" href="{{ url_for('options_dashboard') }}">Options Dashboard</a>
+    <a class="button primary" href="{{ url_for('edit_option_strategy', strategy_id=strategy.id) }}">Edit</a>
+    <form method="post" action="{{ url_for('delete_option_strategy_route', strategy_id=strategy.id) }}" onsubmit="return confirm('Remove option strategy {{ strategy.strategy_no }}?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="button danger" type="submit">Remove</button>
+    </form>
+  </div>
+</section>
+
+<section class="metrics option-metrics">
+  <article>
+    <span>Strategy P/L</span>
+    <strong class="{{ pl_class(strategy.strategy_pl) }}">{{ money(strategy.strategy_pl) }}</strong>
+  </article>
+  <article>
+    <span>P/L %</span>
+    <strong class="{{ pl_class(strategy.pl_pct) }}">{{ pct(strategy.pl_pct) }}</strong>
+  </article>
+  <article>
+    <span>Margin</span>
+    <strong>{{ money(strategy.margin) }}</strong>
+  </article>
+  <article>
+    <span>Max Risk</span>
+    <strong>{{ money(strategy.max_risk) }}</strong>
+  </article>
+  <article>
+    <span>Max Profit</span>
+    <strong>{{ money(strategy.max_profit) }}</strong>
+  </article>
+  <article>
+    <span>Stock Move</span>
+    <strong class="{{ pl_class(strategy.stock_move_pct) }}">{{ pct(strategy.stock_move_pct) }}</strong>
+  </article>
+</section>
+
+<section class="management-panel">
+  <div class="panel-head">
+    <h2>What-if Comparison</h2>
+    <p>Actual result versus buying only the long call/put legs, and versus a &#8377;{{ "{:,.0f}".format(long_stock_notional) }} long stock position. Costs are approximate brokerage, STT, exchange charges, SEBI charges, stamp duty, GST, and DP charges where applicable.</p>
+  </div>
+  <div class="table-wrap">
+    <table class="management-table option-table">
+      <thead>
+        <tr>
+          <th>Scenario</th>
+          <th class="number">P/L</th>
+          <th class="number">Approx Charges</th>
+          <th class="number">Net P/L</th>
+          <th class="number">Difference vs Actual</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in comparison.scenarios %}
+          <tr>
+            <td><strong>{{ row.label }}</strong>{% if row.label == comparison.best %}<span class="subtle">Best scenario</span>{% endif %}</td>
+            <td class="number {{ pl_class(row.pl) }}">{{ money(row.pl) }}</td>
+            <td class="number">{{ money(row.charges) }}</td>
+            <td class="number {{ pl_class(row.net) }}">{{ money(row.net) }}</td>
+            <td class="number {{ pl_class(row.diff) }}">{{ money(row.diff) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="management-panel">
+  <div class="panel-head">
+    <h2>Strategy Legs</h2>
+    <p>Leg-level premium, capital, and realized P/L.</p>
+  </div>
+  <div class="table-wrap">
+    <table class="management-table option-table">
+      <thead>
+        <tr>
+          <th>Leg</th>
+          <th>Action</th>
+          <th>Ticker</th>
+          <th>Strike</th>
+          <th>Type</th>
+          <th class="number">Qty</th>
+          <th class="number">Entry Premium</th>
+          <th class="number">Capital</th>
+          <th class="number">Exit Premium</th>
+          <th class="number">Leg P/L</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for leg in legs %}
+          <tr>
+            <td>{{ leg.leg_no }}</td>
+            <td>{{ leg.action }}</td>
+            <td><strong>{{ leg.ticker }}</strong></td>
+            <td>{{ number(leg.strike) }}</td>
+            <td>{{ leg.option_type or "-" }}</td>
+            <td class="number">{{ number(leg.qty) }}</td>
+            <td class="number">{{ number(leg.buy_price) }}</td>
+            <td class="number">{{ money(leg.trade_capital) }}</td>
+            <td class="number">{{ number(leg.sell_price) }}</td>
+            <td class="number {{ pl_class(leg.achieved_pl) }}">{{ money(leg.achieved_pl) }}</td>
+            <td><span class="status {{ 'closed' if leg.status == 'Closed' else '' }}">{{ leg.status }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if strategy.notes %}
+<section class="management-panel">
+  <div class="panel-head">
+    <h2>Notes</h2>
+    <p>{{ strategy.notes }}</p>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

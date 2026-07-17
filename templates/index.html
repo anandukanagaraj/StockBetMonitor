@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="manage-hero home-hero">
+  <div>
+    <p class="eyebrow">V3 Dashboard</p>
+    <h1>My Portfolio Bets</h1>
+    <p>One place to see stock bets, option bets, realized P/L, and review signals.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button primary" href="{{ url_for('new_position') }}">Add Stock Bet</a>
+    <a class="button primary" href="{{ url_for('new_option_strategy') }}">Add Option Bet</a>
+  </div>
+</section>
+
+<section class="dashboard-summary">
+  <article class="summary-card primary-summary">
+    <span>Combined Realized P/L</span>
+    <strong class="{{ pl_class(dashboard.combined_realized) }}">{{ money(dashboard.combined_realized) }}</strong>
+    <small>Stock + option closed outcomes</small>
+  </article>
+  <article class="summary-card">
+    <span>Stock Bets</span>
+    <strong>{{ dashboard.stock.total }}</strong>
+    <small>{{ dashboard.stock.open }} open · {{ dashboard.stock.closed }} closed</small>
+  </article>
+  <article class="summary-card">
+    <span>Option Bets</span>
+    <strong>{{ dashboard.options.total }}</strong>
+    <small>{{ dashboard.options.open }} open · {{ dashboard.options.closed }} closed</small>
+  </article>
+  <article class="summary-card {{ 'danger-card' if dashboard.review.mandatory_sell_review_count else '' }}">
+    <span>Sell Review</span>
+    <strong>{{ dashboard.review.mandatory_sell_review_count }}</strong>
+    <small>Mandatory review signals</small>
+  </article>
+</section>
+
+<section class="dashboard-grid">
+  <article class="management-panel dashboard-panel">
+    <div class="panel-head">
+      <h2>Stock Bets Snapshot</h2>
+      <p>Capital and realized outcome from stock bets.</p>
+    </div>
+    <div class="snapshot-list">
+      <div>
+        <span>Open capital</span>
+        <strong>{{ money(dashboard.stock.open_capital) }}</strong>
+      </div>
+      <div>
+        <span>Realized P/L</span>
+        <strong class="{{ pl_class(dashboard.stock.realized_pl) }}">{{ money(dashboard.stock.realized_pl) }}</strong>
+      </div>
+      <div>
+        <span>Wins / Losses</span>
+        <strong>{{ dashboard.stock.wins }} / {{ dashboard.stock.losses }}</strong>
+        <small>{{ pct(dashboard.stock.win_rate).replace("+", "") if dashboard.stock.win_rate is not none else "-" }} win rate from {{ dashboard.stock.closed }} closed bets</small>
+      </div>
+      <div>
+        <span>Avg realized return</span>
+        <strong class="{{ pl_class(dashboard.stock.avg_return) }}">{{ pct(dashboard.stock.avg_return) }}</strong>
+      </div>
+    </div>
+    <div class="panel-actions">
+      <a class="button" href="{{ url_for('report_masked') }}">View Stock Report</a>
+      <a class="button" href="{{ url_for('report_targets') }}">Report + Targets</a>
+    </div>
+  </article>
+
+  <article class="management-panel dashboard-panel">
+    <div class="panel-head">
+      <h2>Option Bets Snapshot</h2>
+      <p>Strategy-level performance across option bets.</p>
+    </div>
+    <div class="snapshot-list">
+      <div>
+        <span>Realized P/L</span>
+        <strong class="{{ pl_class(dashboard.options.realized_pl) }}">{{ money(dashboard.options.realized_pl) }}</strong>
+      </div>
+      <div>
+        <span>Strategy return</span>
+        <strong class="{{ pl_class(dashboard.options.avg_return) }}">{{ pct(dashboard.options.avg_return) }}</strong>
+      </div>
+      <div>
+        <span>Wins / Losses</span>
+        <strong>{{ dashboard.options.wins }} / {{ dashboard.options.losses }}</strong>
+      </div>
+      <div>
+        <span>Outcome rate</span>
+        <strong>{{ pct(dashboard.options.outcome_rate).replace("+", "") if dashboard.options.outcome_rate is not none else "-" }}</strong>
+      </div>
+    </div>
+    <div class="panel-actions">
+      <a class="button" href="{{ url_for('options_dashboard') }}">View Options</a>
+      <a class="button" href="{{ url_for('new_option_strategy') }}">Add Option Bet</a>
+    </div>
+  </article>
+</section>
+
+<section class="dashboard-grid review-activity-grid">
+  <article class="management-panel dashboard-panel">
+    <div class="panel-head">
+      <h2>Portfolio Review Signals</h2>
+      <p>Exit-review checks for open stock bets.</p>
+    </div>
+    <div class="review-signal-list">
+      <div class="{{ 'danger' if dashboard.review.deep_drawdown_count else '' }}">
+        <strong>{{ dashboard.review.deep_drawdown_count }}</strong>
+        <span>Down 75%+</span>
+      </div>
+      <div class="{{ 'warning' if dashboard.review.above_avg_hold_count else '' }}">
+        <strong>{{ dashboard.review.above_avg_hold_count }}</strong>
+        <span>Above avg hold</span>
+      </div>
+      <div class="{{ 'warning' if dashboard.review.five_year_hold_count else '' }}">
+        <strong>{{ dashboard.review.five_year_hold_count }}</strong>
+        <span>Held 5Y+</span>
+      </div>
+      <div class="{{ 'danger' if dashboard.review.degraded_membership_count else '' }}">
+        <strong>{{ dashboard.review.degraded_membership_count }}</strong>
+        <span>Index degraded</span>
+      </div>
+    </div>
+    <div class="panel-actions">
+      <a class="button" href="{{ url_for('index_membership') }}">Open Portfolio Review</a>
+    </div>
+  </article>
+
+  <article class="management-panel dashboard-panel">
+    <div class="panel-head">
+      <h2>Recent Activity</h2>
+      <p>Latest stock and option bet changes.</p>
+    </div>
+    <div class="activity-columns">
+      <div>
+        <h3>Stocks</h3>
+        {% for item in dashboard.stock_activity %}
+          <div class="activity-row">
+            <div>
+              <span>{{ item.label }}</span>
+              <strong>{{ item.title }}</strong>
+              <small>{{ item.meta }} · {{ item.date }}</small>
+            </div>
+            <b class="{{ pl_class(item.value) }}">{{ money(item.value) if item.value is not none else "-" }}</b>
+          </div>
+        {% else %}
+          <p class="empty-small">No stock activity yet.</p>
+        {% endfor %}
+      </div>
+      <div>
+        <h3>Options</h3>
+        {% for item in dashboard.option_activity %}
+          <div class="activity-row">
+            <div>
+              <span>{{ item.label }}</span>
+              <strong>{{ item.title }}</strong>
+              <small>{{ item.meta }} · {{ item.date }}</small>
+            </div>
+            <b class="{{ pl_class(item.value) }}">{{ money(item.value) if item.value is not none else "-" }}</b>
+          </div>
+        {% else %}
+          <p class="empty-small">No option activity yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </article>
+</section>
+{% endblock %}

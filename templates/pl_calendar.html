@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% macro filter_url(source=report.source_filter, start=report.start_date, end=report.end_date, preset=none) -%}
+  {% if preset %}
+    {{ url_for('pl_calendar', source=source, preset=preset) }}
+  {% else %}
+    {{ url_for('pl_calendar', source=source, start=start.isoformat(), end=end.isoformat()) }}
+  {% endif %}
+{%- endmacro %}
+
+{% macro compact_money(value) -%}
+  {%- if value is none -%}
+    -
+  {%- elif value|abs >= 10000000 -%}
+    {{ "₹%.2f Cr"|format(value / 10000000) }}
+  {%- elif value|abs >= 100000 -%}
+    {{ "₹%.2f L"|format(value / 100000) }}
+  {%- elif value|abs >= 1000 -%}
+    {{ "₹%.2f k"|format(value / 1000) }}
+  {%- else -%}
+    {{ money(value) }}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro calendar_month(month) %}
+  <article class="pl-month-card">
+    <h2>{{ month.month_name }} {{ month.year }}</h2>
+    <div class="pl-mini-weekdays">
+      <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+    </div>
+    <div class="pl-mini-calendar">
+      {% for week in month.weeks %}
+        {% for cell in week %}
+          {% if cell.empty %}
+            <div class="pl-mini-day empty-day"></div>
+          {% else %}
+            <button class="pl-mini-day {{ 'profit-day' if cell.profit > 0 else 'loss-day' if cell.profit < 0 else '' }}" type="button" data-pl-day="{{ cell.date.isoformat() }}" title="{% if cell.count %}{{ cell.count }} trades · {{ money(cell.profit) }}{% endif %}">
+              <span>{{ cell.day }}</span>
+              {% if cell.count %}
+                <strong class="{{ pl_class(cell.profit) }}">{{ compact_money(cell.profit) }}</strong>
+              {% else %}
+                <strong>-</strong>
+              {% endif %}
+            </button>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </article>
+{% endmacro %}
+
+{% macro rollup_table(title, rows, empty_text) %}
+  <section class="management-panel pl-rollup-card">
+    <div class="panel-head">
+      <h2>{{ title }}</h2>
+      <p>Realized P/L grouped by {{ title|lower }}.</p>
+    </div>
+    <table class="management-table pl-rollup-table">
+      <thead>
+        <tr>
+          <th>Period</th>
+          <th class="number">Trades</th>
+          <th class="number">Wins</th>
+          <th class="number">Losses</th>
+          <th class="number">Win Rate</th>
+          <th class="number">Avg P/L</th>
+          <th class="number">Total P/L</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>
+              <details class="pl-period-detail">
+                <summary>{{ row.label }}</summary>
+                <div class="pl-period-trades">
+                  {% for item in row["items"] %}
+                    <div>
+                      <span>{{ item.date_label }} · {{ item.source }}</span>
+                      <strong>{{ item.label }}</strong>
+                      <b class="{{ pl_class(item.pl) }}">{{ money(item.pl) }}</b>
+                    </div>
+                  {% endfor %}
+                </div>
+              </details>
+            </td>
+            <td class="number">{{ row.count }}</td>
+            <td class="number positive">{{ row.wins }}</td>
+            <td class="number negative">{{ row.losses }}</td>
+            <td class="number">{{ pct(row.win_rate).replace("+", "") if row.win_rate is not none else "-" }}</td>
+            <td class="number {{ pl_class(row.avg_pl) }}">{{ money(row.avg_pl) }}</td>
+            <td class="number {{ pl_class(row.profit) }}"><strong>{{ money(row.profit) }}</strong></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="empty">{{ empty_text }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endmacro %}
+
+{% block content %}
+<section class="pl-app-shell">
+  <div class="pl-title-row">
+    <a class="pl-back" href="{{ url_for('index') }}" aria-label="Back to dashboard">‹</a>
+    <div>
+      <h1>Profit & Loss Calendar</h1>
+      <p>Realized stock and option P/L by close date.</p>
+    </div>
+  </div>
+
+  <form class="pl-filter-bar" method="get" action="{{ url_for('pl_calendar') }}">
+    <div class="pl-field">
+      <span>Segment</span>
+      <div class="pl-segment-control">
+        <a class="{{ 'active' if report.source_filter == 'all' else '' }}" href="{{ filter_url('all') }}">All</a>
+        <a class="{{ 'active' if report.source_filter == 'stock' else '' }}" href="{{ filter_url('stock') }}">Equity</a>
+        <a class="{{ 'active' if report.source_filter == 'option' else '' }}" href="{{ filter_url('option') }}">F&O</a>
+      </div>
+    </div>
+    <div class="pl-field date-field">
+      <span>Date Range</span>
+      <input type="hidden" name="source" value="{{ report.source_filter }}">
+      <div class="pl-date-range">
+        <input type="date" name="start" value="{{ report.start_date.isoformat() }}">
+        <b>to</b>
+        <input type="date" name="end" value="{{ report.end_date.isoformat() }}">
+      </div>
+    </div>
+    <button class="button primary" type="submit">Apply</button>
+  </form>
+
+  <div class="pl-preset-row">
+    {% for key, label in presets %}
+      <a href="{{ filter_url(report.source_filter, preset=key) }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  <section class="pl-overall-strip">
+    <article>
+      <span>Overall P/L</span>
+      <strong class="{{ pl_class(report.summary.profit) }}">{{ money(report.summary.profit) }}</strong>
+    </article>
+    <article>
+      <span>Avg P/L</span>
+      <strong class="{{ pl_class(report.summary.avg_pl) }}">{{ money(report.summary.avg_pl) }}</strong>
+    </article>
+    <article>
+      <span>No. of Trades</span>
+      <strong>{{ report.summary.count }}</strong>
+    </article>
+    <article>
+      <span>Wins / Losses</span>
+      <strong>{{ report.summary.wins }} / {{ report.summary.losses }}</strong>
+    </article>
+    <article>
+      <span>Win Rate</span>
+      <strong>{{ pct(report.summary.win_rate).replace("+", "") if report.summary.win_rate is not none else "-" }}</strong>
+    </article>
+  </section>
+
+  <div class="pl-range-title">{{ report.date_range_label }}</div>
+
+  <section class="pl-months-grid">
+    {% for month in report.calendar_months %}
+      {{ calendar_month(month) }}
+    {% endfor %}
+  </section>
+
+  <section class="pl-day-trades-panel" id="pl-day-trades">
+    <div class="pl-day-trades-empty">Click a calendar day with P/L to view trades.</div>
+    <div class="pl-day-trades-content" hidden></div>
+  </section>
+
+  <div class="pl-day-trade-templates" hidden>
+    {% for month in report.calendar_months %}
+      {% for week in month.weeks %}
+        {% for cell in week %}
+          {% if not cell.empty and cell.count %}
+            <div data-pl-day-template="{{ cell.date.isoformat() }}">
+              <div class="pl-selected-day-head">
+                <div>
+                  <span>{{ cell.date.strftime("%d %b %Y") }}</span>
+                  <strong class="{{ pl_class(cell.profit) }}">{{ money(cell.profit) }}</strong>
+                </div>
+                <div class="pl-selected-day-metrics">
+                  <span>{{ cell.count }} trades</span>
+                  <span class="positive">{{ cell.wins }}W</span>
+                  <span class="negative">{{ cell.losses }}L</span>
+                </div>
+              </div>
+              <div class="pl-selected-trades pl-selected-trades-head">
+                <span>Trade</span>
+                <span>Return</span>
+                <span>Hold</span>
+                <span>P/L</span>
+              </div>
+              <div class="pl-selected-trades">
+                {% for item in cell["items"] %}
+                  <article class="pl-selected-trade">
+                    <div>
+                      <strong>{{ item.label }}</strong>
+                      <small>{{ item.ticker }}</small>
+                    </div>
+                    <span>{{ item.source }} · {{ item.status }}</span>
+                    <span class="{{ pl_class(item.return_pct) }}">{% if item.return_pct is not none %}{{ pct(item.return_pct) }}{% else %}-{% endif %}</span>
+                    <span>{% if item.held_days is not none %}{{ item.held_days }} days{% else %}-{% endif %}</span>
+                    <b class="{{ pl_class(item.pl) }}">{{ money(item.pl) }}</b>
+                  </article>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+    {% endfor %}
+  </div>
+</section>
+
+<script>
+  (() => {
+    const buttons = Array.from(document.querySelectorAll("[data-pl-day]"));
+    const templates = document.querySelector(".pl-day-trade-templates");
+    const panel = document.querySelector("#pl-day-trades");
+    const empty = panel?.querySelector(".pl-day-trades-empty");
+    const content = panel?.querySelector(".pl-day-trades-content");
+
+    function selectDay(button) {
+      const template = templates?.querySelector(`[data-pl-day-template="${button.dataset.plDay}"]`);
+      buttons.forEach((item) => item.classList.remove("selected"));
+      button.classList.add("selected");
+      if (!template || !content || !empty) return;
+      content.innerHTML = template.innerHTML;
+      content.hidden = false;
+      empty.hidden = true;
+      panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => selectDay(button));
+    });
+
+    const firstPopulated = buttons.find((button) =>
+      templates?.querySelector(`[data-pl-day-template="${button.dataset.plDay}"]`)
+    );
+    if (firstPopulated) {
+      selectDay(firstPopulated);
+    }
+  })();
+</script>
+{% endblock %}

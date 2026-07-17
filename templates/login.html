@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="login-shell">
+  <div class="login-card">
+    <p class="eyebrow">Private Access</p>
+    <h1>Admin login</h1>
+    <p>Sign in to manage bets, view target prices, and export portfolio data.</p>
+
+    <form method="post" class="login-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>
+        Username
+        <input name="username" autocomplete="username" required autofocus>
+      </label>
+      <label>
+        Password
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button class="button primary" type="submit">Login</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

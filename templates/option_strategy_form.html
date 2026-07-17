@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="manage-hero options-hero">
+  <div>
+    <p class="eyebrow">Option Strategy</p>
+    <h1>{% if strategy %}Edit option bet{% else %}Add option bet{% endif %}</h1>
+    <p>Select the strategy type and the leg rows will be prepared automatically. Entry Premium is premium paid/received at entry; Exit Premium is premium received/paid at close.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button" href="{{ url_for('options_dashboard') }}">Options Dashboard</a>
+  </div>
+</section>
+
+<section class="form-shell">
+  <form class="position-form option-strategy-form" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <label>
+      Option Bet No
+      <input name="display_bet_no" type="number" value="{{ strategy.bet_no if strategy else next_bet_numbers[strategy_types[0]] }}" readonly data-bet-no-display>
+      <input name="bet_no" type="hidden" value="{{ strategy.bet_no if strategy else next_bet_numbers[strategy_types[0]] }}" data-bet-no-hidden>
+      <input name="strategy_no" type="hidden" value="{{ strategy.strategy_no if strategy else next_strategy_no }}">
+    </label>
+
+    <label>
+      Strategy Type
+      <select name="strategy_type" data-strategy-type>
+        {% for strategy_type in strategy_types %}
+          <option value="{{ strategy_type }}" {% if strategy and strategy.strategy_type == strategy_type %}selected{% endif %}>{{ strategy_type }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      Underlying
+      <input name="underlying" required placeholder="NIFTY, TRENT, BIOCON" value="{{ strategy.underlying if strategy else '' }}">
+    </label>
+
+    <label>
+      Buy Date
+      <input name="buy_date" type="date" required value="{{ strategy.buy_date if strategy else default_buy_date }}">
+    </label>
+
+    <label>
+      Sell Date
+      <input name="sell_date" type="date" value="{{ strategy.sell_date if strategy and strategy.sell_date else '' }}">
+    </label>
+
+    <label>
+      Expiry Date
+      <input name="expiry_date" type="date" value="{{ strategy.expiry_date if strategy and strategy.expiry_date else '' }}">
+    </label>
+
+    <label>
+      Status
+      <select name="status">
+        {% for status in statuses %}
+          <option value="{{ status }}" {% if strategy and strategy.status == status %}selected{% endif %}>{{ status }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="check-row">
+      <input name="is_test_data" type="checkbox" {% if strategy and strategy.is_test_data %}checked{% endif %}>
+      <span>Mark this as test data</span>
+    </label>
+
+    <section class="option-leg-builder full">
+      <div class="panel-head compact">
+        <h2>Option Legs</h2>
+        <p data-leg-help>Long Call starts with one BUY leg. Spreads use two legs. Iron Condor uses four legs.</p>
+      </div>
+      <div class="table-wrap">
+        <table class="leg-entry-table">
+          <thead>
+            <tr>
+              <th>Action</th>
+              <th>Ticker</th>
+              <th class="number">Qty</th>
+              <th class="number">Entry Premium</th>
+              <th class="number">Exit Premium</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody data-leg-rows>
+            {% set rendered_legs = legs if legs else [] %}
+            {% for leg in rendered_legs %}
+              <tr>
+                <td>
+                  <select name="leg_action[]">
+                    <option value="BUY" {% if leg.action == "BUY" %}selected{% endif %}>BUY</option>
+                    <option value="SELL" {% if leg.action == "SELL" %}selected{% endif %}>SELL</option>
+                  </select>
+                </td>
+                <td><input name="leg_ticker[]" required placeholder="TRENT 3100 CE" value="{{ leg.ticker }}"></td>
+                <td><input name="leg_qty[]" type="number" step="0.01" min="0.01" required value="{{ leg.qty }}"></td>
+                <td><input name="leg_buy_price[]" type="number" step="0.01" min="0.01" required placeholder="Entry" value="{{ leg.buy_price }}"></td>
+                <td><input name="leg_sell_price[]" type="number" step="0.01" min="0.01" placeholder="Exit" value="{{ leg.sell_price if leg.sell_price is not none else '' }}"></td>
+                <td><button class="button danger" type="button" data-remove-leg>Remove</button></td>
+              </tr>
+            {% else %}
+              <tr>
+                <td>
+                  <select name="leg_action[]">
+                    <option value="BUY">BUY</option>
+                    <option value="SELL">SELL</option>
+                  </select>
+                </td>
+                <td><input name="leg_ticker[]" required placeholder="TRENT 3100 CE"></td>
+                <td><input name="leg_qty[]" type="number" step="0.01" min="0.01" required></td>
+                <td><input name="leg_buy_price[]" type="number" step="0.01" min="0.01" required placeholder="Entry"></td>
+                <td><input name="leg_sell_price[]" type="number" step="0.01" min="0.01" placeholder="Exit"></td>
+                <td><button class="button danger" type="button" data-remove-leg>Remove</button></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <button class="button" type="button" data-add-leg>Add custom leg</button>
+    </section>
+
+    <label class="full">
+      Notes
+      <textarea name="notes" rows="3" placeholder="Adjustments, reason for entry, risk notes">{{ strategy.notes if strategy and strategy.notes else '' }}</textarea>
+    </label>
+
+    <div class="form-actions full">
+      <a class="button" href="{{ url_for('options_dashboard') }}">Cancel</a>
+      <button class="button primary" type="submit">{% if strategy %}Update Option Bet{% else %}Save Option Bet{% endif %}</button>
+    </div>
+  </form>
+</section>
+
+<script>
+(function () {
+  const rows = document.querySelector("[data-leg-rows]");
+  const addButton = document.querySelector("[data-add-leg]");
+  const strategySelect = document.querySelector("[data-strategy-type]");
+  const legHelp = document.querySelector("[data-leg-help]");
+  const betNoDisplay = document.querySelector("[data-bet-no-display]");
+  const betNoHidden = document.querySelector("[data-bet-no-hidden]");
+  const isEditMode = {{ 'true' if strategy else 'false' }};
+  if (!rows || !addButton || !strategySelect) {
+    return;
+  }
+
+  const nextBetNumbers = {{ next_bet_numbers|tojson }};
+
+  const templates = {
+    "Long Call": [
+      { action: "BUY", placeholder: "TRENT 3100 CE" }
+    ],
+    "Long Put": [
+      { action: "BUY", placeholder: "TRENT 3000 PE" }
+    ],
+    "Bull Call Spread": [
+      { action: "BUY", placeholder: "KALYANKJIL 505 CE" },
+      { action: "SELL", placeholder: "KALYANKJIL 525 CE" }
+    ],
+    "Bear Put Spread": [
+      { action: "BUY", placeholder: "NIFTY 25000 PE" },
+      { action: "SELL", placeholder: "NIFTY 24800 PE" }
+    ],
+    "Bull Put Spread": [
+      { action: "SELL", placeholder: "NIFTY 24800 PE" },
+      { action: "BUY", placeholder: "NIFTY 24600 PE" }
+    ],
+    "Bear Call Spread": [
+      { action: "SELL", placeholder: "NIFTY 25200 CE" },
+      { action: "BUY", placeholder: "NIFTY 25400 CE" }
+    ],
+    "Debit Spread": [
+      { action: "BUY", placeholder: "NIFTY 25000 CE" },
+      { action: "SELL", placeholder: "NIFTY 25200 CE" }
+    ],
+    "Credit Spread": [
+      { action: "SELL", placeholder: "NIFTY 25200 CE" },
+      { action: "BUY", placeholder: "NIFTY 25400 CE" }
+    ],
+    "Iron Condor": [
+      { action: "BUY", placeholder: "NIFTY 24600 PE" },
+      { action: "SELL", placeholder: "NIFTY 24800 PE" },
+      { action: "SELL", placeholder: "NIFTY 25200 CE" },
+      { action: "BUY", placeholder: "NIFTY 25400 CE" }
+    ],
+    "Iron Butterfly": [
+      { action: "BUY", placeholder: "NIFTY 24800 PE" },
+      { action: "SELL", placeholder: "NIFTY 25000 PE" },
+      { action: "SELL", placeholder: "NIFTY 25000 CE" },
+      { action: "BUY", placeholder: "NIFTY 25200 CE" }
+    ],
+    "Straddle": [
+      { action: "BUY", placeholder: "NIFTY 25000 CE" },
+      { action: "BUY", placeholder: "NIFTY 25000 PE" }
+    ],
+    "Strangle": [
+      { action: "BUY", placeholder: "NIFTY 25200 CE" },
+      { action: "BUY", placeholder: "NIFTY 24800 PE" }
+    ],
+    "Custom Multi-leg": [
+      { action: "BUY", placeholder: "NIFTY 25000 CE" }
+    ]
+  };
+
+  function clearRow(row, config) {
+    row.querySelector("select").value = config.action || "BUY";
+    row.querySelectorAll("input").forEach((input) => {
+      input.value = "";
+    });
+    row.querySelector('input[name="leg_ticker[]"]').placeholder = config.placeholder || "TRENT 3100 CE";
+  }
+
+  function addRow(config) {
+    const row = rows.querySelector("tr").cloneNode(true);
+    clearRow(row, config || {});
+    rows.appendChild(row);
+  }
+
+  function rebuildLegsForStrategy(strategyType) {
+    const config = templates[strategyType] || templates["Custom Multi-leg"];
+    const firstRow = rows.querySelector("tr");
+    rows.innerHTML = "";
+    config.forEach((legConfig, index) => {
+      const row = firstRow.cloneNode(true);
+      clearRow(row, legConfig);
+      rows.appendChild(row);
+    });
+    if (legHelp) {
+      legHelp.textContent = `${strategyType} starts with ${config.length} leg${config.length === 1 ? "" : "s"}. You can add custom legs if needed.`;
+    }
+    if (betNoDisplay) {
+      betNoDisplay.value = nextBetNumbers[strategyType] || 1;
+    }
+    if (betNoHidden && !isEditMode) {
+      betNoHidden.value = nextBetNumbers[strategyType] || 1;
+    }
+  }
+
+  addButton.addEventListener("click", () => {
+    addRow({ action: "BUY", placeholder: "Custom option ticker" });
+  });
+
+  strategySelect.addEventListener("change", () => {
+    const hasEnteredValues = Array.from(rows.querySelectorAll("input")).some((input) => input.value.trim() !== "");
+    if (hasEnteredValues && !confirm("Changing strategy type will reset the leg rows. Continue?")) {
+      return;
+    }
+    rebuildLegsForStrategy(strategySelect.value);
+  });
+
+  rows.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-leg]");
+    if (!button) {
+      return;
+    }
+    if (rows.querySelectorAll("tr").length === 1) {
+      rows.querySelectorAll("input").forEach((input) => input.value = "");
+      return;
+    }
+    button.closest("tr").remove();
+  });
+
+  if (!isEditMode) {
+    rebuildLegsForStrategy(strategySelect.value);
+  }
+}());
+</script>
+{% endblock %}

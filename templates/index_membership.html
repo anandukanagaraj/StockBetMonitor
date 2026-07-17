@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="manage-hero index-hero">
+  <div>
+    <p class="eyebrow">Portfolio review</p>
+    <h1>Underperforming Bets Review</h1>
+    <p>Review open bets against exit criteria: 75% price fall, Avg Winning Hold crossed, 5 years crossed, and removal from broad index membership.</p>
+    <div class="index-source-meta">
+      <span>Source: {{ report.source }}</span>
+      <span>Last updated: {{ report.membership_last_updated or "not available" }}</span>
+      <span>Baseline: {{ report.snapshot_as_of or "first successful load" }}</span>
+    </div>
+  </div>
+  <div class="hero-actions">
+    <a class="button" href="{{ url_for('index') }}">Masked Report</a>
+    <a class="button" href="{{ url_for('report_targets') }}">Targets Report</a>
+  </div>
+</section>
+
+<section class="signal-grid" aria-label="Portfolio review signal legend">
+  <article class="signal-card stable">
+    <span><i></i> Green</span>
+    <strong>No mandatory review</strong>
+    <p>No exit-review rule has been triggered yet.</p>
+  </article>
+  <article class="signal-card promoted">
+    <span><i></i> Blue</span>
+    <strong>Index support improved</strong>
+    <p>Moved into a stronger broad NSE index.</p>
+  </article>
+  <article class="signal-card downgraded">
+    <span><i></i> Amber</span>
+    <strong>Review watch</strong>
+    <p>Avg hold or membership quality has weakened.</p>
+  </article>
+  <article class="signal-card removed">
+    <span><i></i> Red</span>
+    <strong>Mandatory sell review</strong>
+    <p>One or more exit criteria has been triggered.</p>
+  </article>
+</section>
+
+<section class="index-insight-grid" aria-label="Index membership insights">
+  <article class="index-insight-card {{ 'danger' if report.summary_cards.mandatory_sell_review_count else 'calm' }}">
+    <span>Mandatory sell review</span>
+    <strong>{{ report.summary_cards.mandatory_sell_review_count }}</strong>
+    <p>Triggered by 75% fall, avg hold crossed, 5 years crossed, or index removal</p>
+  </article>
+  <article class="index-insight-card {{ 'danger' if report.summary_cards.deep_drawdown_count else 'calm' }}">
+    <span>75% price fall</span>
+    <strong>{{ report.summary_cards.deep_drawdown_count }}</strong>
+    <p>Open bets down 75% or more from buy price</p>
+  </article>
+  <article class="index-insight-card {{ 'warning' if report.summary_cards.above_avg_hold_count else 'calm' }}">
+    <span>Hold watch</span>
+    <strong>{{ report.summary_cards.above_avg_hold_count }}</strong>
+    <p>Open bets above Avg Winning Hold days</p>
+  </article>
+  <article class="index-insight-card {{ 'warning' if report.summary_cards.five_year_hold_count else 'calm' }}">
+    <span>5 year hold</span>
+    <strong>{{ report.summary_cards.five_year_hold_count }}</strong>
+    <p>Open bets held for more than 5 years</p>
+  </article>
+  <article class="index-insight-card {{ 'danger' if report.summary_cards.degraded_membership_count else 'calm' }}">
+    <span>Membership risk</span>
+    <strong>{{ report.summary_cards.degraded_membership_count }}</strong>
+    <p>Bets downgraded or removed from broad indices</p>
+  </article>
+  <article class="index-insight-card {{ 'positive-card' if report.summary_cards.promoted_membership_count else 'calm' }}">
+    <span>Positive moves</span>
+    <strong>{{ report.summary_cards.promoted_membership_count }}</strong>
+    <p>Bets promoted to a higher broad index</p>
+  </article>
+</section>
+
+<section class="management-panel">
+  <div class="panel-head index-panel-head">
+    <div>
+      <p class="eyebrow">Open bets</p>
+      <h2>Portfolio Review Checklist</h2>
+    </div>
+    <div class="panel-summary">
+      <span>{{ report.rows|length }} bets</span>
+      <span>{{ report.tracked_index_count }} indices tracked</span>
+      <span>Avg win hold: {{ "%.0f"|format(report.avg_winning_hold_days) if report.avg_winning_hold_days is not none else "-" }} days</span>
+    </div>
+  </div>
+
+  {% if report.membership_errors or report.status_errors %}
+    <div class="source-warnings">
+      {% if report.membership_errors %}
+        <p>Some NSE constituent files could not be fetched. Membership may be partial.</p>
+      {% endif %}
+      {% if report.status_errors %}
+        <p>Live index status could not be fetched. Membership table is still shown from constituent files.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="table-wrap">
+    <table class="index-membership-table portfolio-review-table sortable-table" data-page-size="10">
+      <thead>
+        <tr>
+          <th data-sort="text">Stock</th>
+          <th data-sort="number">Sell Review</th>
+          <th data-sort="number">Hold vs Avg Win</th>
+          <th data-sort="number">5Y Hold</th>
+          <th data-sort="number">Price Fall</th>
+          <th data-sort="number">Index Signal</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in report.rows %}
+          {% set price_status = row.price_status if row.price_status is defined else {'sort_value': 0, 'class': 'none', 'label': 'Price missing', 'detail': '-'} %}
+          {% set five_year_status = row.five_year_status if row.five_year_status is defined else {'sort_value': 0, 'class': 'none', 'label': '-', 'detail': '-'} %}
+          {% set sell_review = row.sell_review if row.sell_review is defined else {'sort_value': 0, 'class': 'clear', 'label': 'No review', 'detail': 'No mandatory sell-review trigger'} %}
+          <tr>
+            <td class="stock-cell" data-sort-value="{{ row.ticker }}">
+              <strong>{{ row.ticker }}</strong>
+              <span class="subtle">Bet {{ row.bet_no }} | NSE: {{ row.symbol }}</span>
+              <span class="subtle review-index-line">Index: {{ row.highest_index_label }}{% if row.other_memberships_label != "-" %} | Also: {{ row.other_memberships_label }}{% endif %}</span>
+            </td>
+            <td data-sort-value="{{ sell_review.sort_value }}">
+              <span class="sell-review-status {{ sell_review.class }}">
+                {{ sell_review.label }}
+              </span>
+              <span class="subtle hold-detail">{{ sell_review.detail }}</span>
+            </td>
+            <td data-sort-value="{{ row.hold_status.sort_value }}">
+              <span class="hold-status {{ row.hold_status.class }}">
+                {{ row.hold_status.label }}
+              </span>
+              <span class="subtle hold-detail">{{ row.hold_status.detail }}</span>
+            </td>
+            <td data-sort-value="{{ five_year_status.sort_value }}">
+              <span class="hold-status {{ five_year_status.class }}">
+                {{ five_year_status.label }}
+              </span>
+              <span class="subtle hold-detail">{{ five_year_status.detail }}</span>
+            </td>
+            <td data-sort-value="{{ price_status.sort_value }}">
+              <span class="hold-status {{ price_status.class }}">
+                {{ price_status.label }}
+              </span>
+              <span class="subtle hold-detail">{{ price_status.detail }}</span>
+            </td>
+            <td data-sort-value="{{ row.membership_signal.rank }}">
+              <span class="membership-status {{ row.membership_signal.class }}">
+                {{ row.membership_signal.label }}
+              </span>
+              <span class="subtle hold-detail">Verified: {{ row.membership_signal.effective_date }}</span>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="6" class="empty">No open bets to show.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-pagination" data-index-pagination></div>
+</section>
+
+<script>
+(function () {
+  document.querySelectorAll(".sortable-table").forEach((table) => {
+    const tbody = table.tBodies[0];
+    const pager = table.closest(".management-panel").querySelector("[data-index-pagination]");
+    const pageSize = Number(table.dataset.pageSize || 10);
+    let rows = Array.from(tbody.rows);
+    let page = 1;
+
+    function renderPage() {
+      const totalPages = Math.max(Math.ceil(rows.length / pageSize), 1);
+      page = Math.min(Math.max(page, 1), totalPages);
+      const start = (page - 1) * pageSize;
+      tbody.innerHTML = "";
+      rows.slice(start, start + pageSize).forEach((row) => tbody.appendChild(row));
+
+      if (!pager || rows.length <= pageSize) {
+        if (pager) {
+          pager.innerHTML = rows.length ? `<span>${rows.length} bets</span>` : "";
+        }
+        return;
+      }
+
+      const firstRow = rows.length ? start + 1 : 0;
+      const lastRow = Math.min(start + pageSize, rows.length);
+      pager.innerHTML = `
+        <span>Page ${page} of ${totalPages} · ${firstRow}-${lastRow} of ${rows.length} bets</span>
+        <button class="button" type="button" data-page="prev" ${page === 1 ? "disabled" : ""}>Prev</button>
+        <button class="button" type="button" data-page="next" ${page === totalPages ? "disabled" : ""}>Next</button>
+      `;
+    }
+
+    table.querySelectorAll("th[data-sort]").forEach((header, columnIndex) => {
+      header.classList.add("sortable-heading");
+      header.addEventListener("click", () => {
+        const direction = header.dataset.direction === "asc" ? "desc" : "asc";
+        table.querySelectorAll("th[data-sort]").forEach((item) => {
+          item.dataset.direction = "";
+          item.classList.remove("sorted-asc", "sorted-desc");
+        });
+        header.dataset.direction = direction;
+        header.classList.add(direction === "asc" ? "sorted-asc" : "sorted-desc");
+
+        rows.sort((a, b) => {
+          const leftCell = a.cells[columnIndex];
+          const rightCell = b.cells[columnIndex];
+          const leftRaw = leftCell.dataset.sortValue || leftCell.textContent.trim();
+          const rightRaw = rightCell.dataset.sortValue || rightCell.textContent.trim();
+          const numeric = header.dataset.sort === "number";
+          const left = numeric ? Number(leftRaw) : leftRaw.toLowerCase();
+          const right = numeric ? Number(rightRaw) : rightRaw.toLowerCase();
+          if (left < right) return direction === "asc" ? -1 : 1;
+          if (left > right) return direction === "asc" ? 1 : -1;
+          return 0;
+        });
+        page = 1;
+        renderPage();
+      });
+    });
+
+    if (pager) {
+      pager.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-page]");
+        if (!button) {
+          return;
+        }
+        page += button.dataset.page === "next" ? 1 : -1;
+        renderPage();
+      });
+    }
+
+    renderPage();
+  });
+})();
+</script>
+{% endblock %}
