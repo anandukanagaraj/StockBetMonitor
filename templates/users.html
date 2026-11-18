@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel users-panel">
+  <div class="panel-head compact"><div><h1>User Management</h1><p>Create an account with the contact details used for reports and notifications.</p></div></div>
+  <form method="post" class="user-create-form user-contact-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Full name<input name="full_name" maxlength="100" autocomplete="name"></label>
+    <label>Username<input name="username" required maxlength="40" autocomplete="username"></label>
+    <label>Email<input type="email" name="email" required maxlength="254" autocomplete="email"></label>
+    <label>WhatsApp number<input type="tel" name="whatsapp_number" maxlength="30" placeholder="+91..." autocomplete="tel"></label>
+    <label>Telegram chat ID<input name="telegram_chat_id" maxlength="64" placeholder="Optional"></label>
+    <label>Temporary password<input type="password" name="password" required minlength="10" autocomplete="new-password"></label>
+    <button class="button primary" type="submit">Create user</button>
+  </form>
+</section>
+<section class="panel table-panel users-table-panel">
+  <table class="users-table">
+    <thead><tr><th>User</th><th>Contact & notifications</th><th>Role</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>{% for user in users %}
+      <tr><td><strong>{{ user.full_name or user.username }}</strong><br><small>{{ user.username }}</small></td><td>
+        <form method="post" action="{{ url_for('update_user_profile_route', user_id=user.id) }}" class="user-profile-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input name="full_name" value="{{ user.full_name or '' }}" placeholder="Full name" maxlength="100">
+          <input type="email" name="email" value="{{ user.email or '' }}" placeholder="Email" required maxlength="254">
+          <input type="tel" name="whatsapp_number" value="{{ user.whatsapp_number or '' }}" placeholder="WhatsApp number" maxlength="30">
+          <input name="telegram_chat_id" value="{{ user.telegram_chat_id or '' }}" placeholder="Telegram chat ID" maxlength="64">
+          <button class="button secondary" type="submit">Save</button>
+        </form>
+      </td><td>{{ "Administrator" if user.is_admin else "User" }}</td><td>{{ "Active" if user.is_active else "Disabled" }}</td><td>
+        {% if not user.is_admin %}<form method="post" action="{{ url_for('toggle_user', user_id=user.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary" type="submit">{{ "Disable" if user.is_active else "Enable" }}</button></form>{% else %}<small>Protected</small>{% endif %}
+      </td></tr>
+    {% endfor %}</tbody>
+  </table>
+</section>
+{% endblock %}

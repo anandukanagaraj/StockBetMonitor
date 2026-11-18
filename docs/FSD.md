@@ -300,7 +300,7 @@ The scheduler is intended to run on the laptop or server.
 
 During Indian market hours it:
 
-- Reads open stock bets from SQLite.
+- Reads open stock bets from configured stock groups in SQLite.
 - Fetches latest prices using Yahoo Finance.
 - Updates current prices in the database.
 - Evaluates target, near-target, and stop-loss conditions.
@@ -319,6 +319,18 @@ Default schedule:
 - Market end: `15:30`.
 - EOD report time: `15:35`.
 - Market check interval: `30` minutes.
+- Stock groups: `SWING`.
+
+The stock group scope is controlled by backend config:
+
+```ini
+[SCHEDULER]
+STOCK_GROUP_CODES=SWING
+```
+
+Only these groups are included in scheduled price refreshes, alerts, EOD email,
+generated stock reports, and EOD publishing. Other stock groups can be used in
+the app without becoming automated.
 
 ## 4.9 WhatsApp Alerts
 
@@ -412,4 +424,3 @@ The export uses the original Excel template layout where available.
 - Stock report generator is retained.
 - Option tracking uses separate database tables.
 - Reports and dashboards source data from SQLite.
-

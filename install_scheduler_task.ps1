@@ -21,15 +21,18 @@ $Action = New-ScheduledTaskAction `
     -Argument "`"$SchedulerPath`"" `
     -WorkingDirectory $ProjectRoot
 
-$Trigger = New-ScheduledTaskTrigger -AtLogOn
+$CurrentUser = "$env:USERDOMAIN\$env:USERNAME"
+$Trigger = New-ScheduledTaskTrigger -AtLogOn -User $CurrentUser
 
 $Settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
+    -RestartCount 10 `
+    -RestartInterval (New-TimeSpan -Minutes 1) `
     -MultipleInstances IgnoreNew
 
-$CurrentUser = "$env:USERDOMAIN\$env:USERNAME"
 $Principal = New-ScheduledTaskPrincipal `
     -UserId $CurrentUser `
     -LogonType Interactive `

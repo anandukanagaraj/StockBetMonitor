@@ -81,8 +81,24 @@ http://127.0.0.1:5002
 Flask run configuration:
 
 ```python
-app.run(debug=True, port=5002, use_reloader=False)
+app.run(host="127.0.0.1", debug=False, port=5002, use_reloader=False)
 ```
+
+`APP_BIND_HOST`, `APP_PORT`, and `APP_SECRET_KEY` can be overridden with environment variables. The app refuses to start on non-localhost binds without `APP_SECRET_KEY` and `ADMIN_PASSWORD_HASH`.
+
+Health endpoint:
+
+```text
+GET /health
+```
+
+Returns app, database, and scheduler heartbeat status. Scheduler heartbeat is written to `data/scheduler_heartbeat.json`.
+
+Report retention:
+
+- Old HTML snapshots are cleaned up automatically after report generation.
+- Manual cleanup: `.\cleanup_reports.ps1 -KeepDays 14`
+- Config key: `[APP] REPORT_KEEP_DAYS` (default `14`)
 
 The reloader is disabled to avoid duplicate scheduler-like side effects during local development.
 
@@ -415,6 +431,7 @@ File:
 Configuration:
 
 - `config.ini`
+- `[SCHEDULER].STOCK_GROUP_CODES`, default `SWING`
 
 State:
 
@@ -452,13 +469,25 @@ Run one forced cycle outside market hours:
 
 During configured market hours:
 
-1. Load open positions from SQLite.
+1. Load open positions from configured scheduler stock groups.
 2. Fetch latest price for each ticker.
 3. Update `current_price`.
 4. Evaluate target, near-target, very-close, and stop-loss conditions.
 5. Send WhatsApp alerts if enabled and credentials are present.
 6. Generate masked and target-visible reports.
 7. Log all ticker-level evaluations.
+
+The scheduler uses `scheduler_stock_group_codes(config)` and
+`scheduler_positions(config)` to enforce the stock group allowlist. For now the
+backend config is:
+
+```ini
+[SCHEDULER]
+STOCK_GROUP_CODES=SWING
+```
+
+This same allowlist is used for market-cycle price refreshes, report snapshots,
+EOD email content, and EOD publishing.
 
 ## 11.3 EOD Cycle
 
@@ -534,6 +563,8 @@ Useful log entries:
 - Do not commit real app passwords, WhatsApp tokens, or phone IDs.
 - Use environment variables for hosted deployments.
 - Set `ADMIN_PASSWORD_HASH` before exposing the app beyond localhost.
+- Set `APP_SECRET_KEY` before binding `APP_BIND_HOST` beyond localhost.
+- Portfolio API accepts `X-API-Key` header only; non-local requests are rejected when the key is unset.
 - CSRF validation is applied to POST requests.
 
 ## 16. Known Limitations

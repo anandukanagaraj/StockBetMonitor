@@ -24,7 +24,13 @@
 
 {% macro calendar_month(month) %}
   <article class="pl-month-card">
-    <h2>{{ month.month_name }} {{ month.year }}</h2>
+    <div class="pl-month-heading">
+      <h2>{{ month.month_name }} {{ month.year }}</h2>
+      <div class="pl-month-total" title="{{ month.count }} trades · {{ month.wins }} wins · {{ month.losses }} losses">
+        <strong class="{{ pl_class(month.profit) }}">{{ compact_money(month.profit) }}</strong>
+        <span>{{ month.count }} trades</span>
+      </div>
+    </div>
     <div class="pl-mini-weekdays">
       <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
     </div>

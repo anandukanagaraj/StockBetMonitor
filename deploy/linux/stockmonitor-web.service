@@ -1,0 +1,17 @@
+[Unit]
+Description=StockMonitor V3 web app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stockmonitor
+WorkingDirectory=/opt/stockmonitor
+EnvironmentFile=/etc/stockmonitor/stockmonitor.env
+# One worker keeps SQLite writes and in-memory caches in a single process.
+ExecStart=/opt/stockmonitor/.venv/bin/gunicorn --workers 1 --threads 8 --timeout 180 --bind ${APP_BIND_HOST}:${PORT} app:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

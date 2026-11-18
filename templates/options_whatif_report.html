@@ -1,0 +1,389 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="manage-hero options-hero">
+  <div>
+    <p class="eyebrow">Options Report</p>
+    <h1>What-if Summary</h1>
+    <p>Compares each closed option bet against long-only option legs and an equivalent stock simulation sized as lot quantity × strike.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button" href="{{ url_for('options_dashboard', trade_group_id=selected_trade_group_id) }}">Options Dashboard</a>
+    <a class="button primary" href="{{ url_for('new_option_strategy', trade_group_id=selected_trade_group_id) }}">Add Option Bet</a>
+  </div>
+</section>
+
+<section class="option-filter-card">
+  <div>
+    <span>Trade Group</span>
+    <strong>{{ selected_trade_group.name if selected_trade_group else "No Trade Group" }}</strong>
+    {% if selected_trade_group and selected_trade_group.description %}
+      <p class="trade-group-description">{{ selected_trade_group.description }}</p>
+    {% else %}
+      <p class="trade-group-description empty-description">No description added for this Trade Group.</p>
+    {% endif %}
+    {% if selected_trade_group and not selected_group_reportable %}
+      <p class="trade-group-description">
+        <span class="status warning">Paper Trade</span>
+        Included here for what-if analysis, but excluded from live option performance reports.
+      </p>
+    {% endif %}
+  </div>
+  <form method="get" action="{{ url_for('options_whatif_report') }}" class="option-filter-form">
+    <label>
+      Trade Group
+      <select name="trade_group_id" onchange="this.form.submit()">
+        {% for group in trade_groups %}
+          <option value="{{ group.id }}" {% if group.id == selected_trade_group_id %}selected{% endif %}>
+            {{ group.name }} ({{ group.code }}){% if group.group_type == 'PAPER' %} - Paper Trade{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Strategy
+      <select name="strategy_type" onchange="this.form.submit()">
+        <option value="">All Strategies</option>
+        {% for strategy_type in strategy_types %}
+          <option value="{{ strategy_type }}" {% if strategy_type == selected_strategy_type %}selected{% endif %}>{{ strategy_type }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if selected_strategy_type %}
+      <a class="button" href="{{ url_for('options_whatif_report', trade_group_id=selected_trade_group_id) }}">Clear</a>
+    {% endif %}
+  </form>
+</section>
+
+<section class="whatif-summary-panel">
+  <div class="panel-head">
+    <h2>What-if Comparison Summary</h2>
+    <p>
+      Best outcome: <strong>{{ summary.best_label }}</strong> at
+      <strong class="{{ pl_class(summary.best_value) }}">{{ money(summary.best_value) }}</strong>
+      {% if summary.gap_vs_actual is not none %}
+        , ahead of actual strategy by <strong class="{{ pl_class(summary.gap_vs_actual) }}">{{ money(summary.gap_vs_actual) }}</strong>.
+      {% endif %}
+    </p>
+  </div>
+  <div class="table-wrap">
+    <table class="management-table whatif-summary-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          {% for card in summary.scenario_cards %}
+            <th class="number {% if card.label == summary.best_label %}is-best{% endif %}">
+              {{ card.label }}
+            </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>P/L</strong></td>
+          {% for card in summary.scenario_cards %}
+            <td class="number {{ pl_class(card.value) }}"><strong>{{ money(card.value) }}</strong></td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td><strong>After Tax</strong></td>
+          {% for card in summary.scenario_cards %}
+            <td class="number {{ pl_class(card.after_tax) }}">{{ money(card.after_tax) }}</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td><strong>Tax Basis</strong></td>
+          {% for card in summary.scenario_cards %}
+            <td class="number">{{ card.tax_label }} {{ rate(card.tax_rate) }}</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td><strong>Avg Capital / Risk</strong></td>
+          {% for card in summary.scenario_cards %}
+            <td class="number">{{ money(card.capital_avg) }}</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td><strong>Return on Risk</strong></td>
+          {% for card in summary.scenario_cards %}
+            <td class="number {{ pl_class(card.value) }}">
+              {% if card.value is not none and card.capital_total %}
+                {{ rate(card.value / card.capital_total * 100) }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td><strong>Max Drawdown</strong></td>
+          {% for card in summary.scenario_cards %}
+            <td class="number negative">{{ money(card.max_drawdown) }}</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td><strong>Win Rate</strong></td>
+          {% for card in summary.scenario_cards %}
+            <td class="number">{{ rate(card.win_rate) }}</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td><strong>Avg P/L per Bet</strong></td>
+          {% for card in summary.scenario_cards %}
+            <td class="number {{ pl_class(card.avg) }}">{{ money(card.avg) }}</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td><strong>Worst Bet</strong></td>
+          {% for card in summary.scenario_cards %}
+            <td class="number negative">{{ money(card.worst) }}</td>
+          {% endfor %}
+        </tr>
+        <tr>
+          <td><strong>Bets Compared</strong></td>
+          {% for card in summary.scenario_cards %}
+            <td class="number">{{ card.count }}</td>
+          {% endfor %}
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="whatif-move-panel">
+  <div class="panel-head">
+    <div>
+      <h2>Underlying Stock Move Distribution</h2>
+      <p>Closed bets grouped by signed underlying move from entry to exit, so negative and positive outcomes are visible separately.</p>
+    </div>
+    <span class="whatif-move-coverage">
+      {{ move_distribution.measured }} measured · <b class="positive">{{ move_distribution.up }} up</b> · <b class="negative">{{ move_distribution.down }} down</b> · {{ move_distribution.flat }} flat{% if move_distribution.missing %} · {{ move_distribution.missing }} missing{% endif %}
+    </span>
+  </div>
+  <div class="whatif-move-chart" role="img" aria-label="Distribution of closed option bets by underlying stock move percentage">
+    {% for band in move_distribution.bands %}
+      <article class="whatif-move-bar-item">
+        <div class="whatif-move-bar-track">
+          {% if band.count %}
+            <div class="whatif-move-bar" style="height: {{ band.height }}%"><strong>{{ band.count }}</strong></div>
+          {% endif %}
+        </div>
+        <span>{{ band.label }}</span>
+      </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="whatif-analysis-panel">
+  <article class="whatif-analysis-primary">
+    <span>Best Outcome</span>
+    <strong class="{{ pl_class(summary.best_value) }}">{{ summary.best_label }}</strong>
+    <b class="{{ pl_class(summary.best_value) }}">{{ money(summary.best_value) }}</b>
+    {% if summary.gap_vs_actual is not none %}
+      <p>Better than actual strategy by <b class="{{ pl_class(summary.gap_vs_actual) }}">{{ money(summary.gap_vs_actual) }}</b>.</p>
+    {% else %}
+      <p>{{ summary.insight }}</p>
+    {% endif %}
+    <small>{{ summary.closed_bets }} closed bets analysed</small>
+  </article>
+  {% for card in summary.scenario_cards %}
+    <article class="{% if card.label == summary.best_label %}is-best{% endif %}">
+      <span>{{ card.label }}</span>
+      <strong class="{{ pl_class(card.value) }}">{{ money(card.value) }}</strong>
+      <small class="whatif-simple-meta-clean">{{ card.count }} bets - capital {{ money(card.capital_total) }}</small>
+      <small class="whatif-simple-meta-clean">Avg {{ money(card.avg) }} - win {{ rate(card.win_rate) }}</small>
+      <small class="whatif-simple-meta">{{ card.count }} bets · capital {{ money(card.capital_total) }}</small>
+      <small class="whatif-simple-meta">Avg {{ money(card.avg) }} · win {{ rate(card.win_rate) }}</small>
+      <small>{{ card.count }} bets{% if card.avg is not none %} · avg {{ money(card.avg) }}{% endif %}</small>
+    </article>
+  {% endfor %}
+</section>
+
+<section class="management-panel">
+  <div class="panel-head">
+    <h2>Closed Bet What-if Report</h2>
+    <p>Use this to compare the actual strategy outcome against simpler alternatives you could have taken.</p>
+  </div>
+  <div class="table-wrap">
+    <table class="management-table option-table whatif-report-table" data-page-size="15">
+      <thead>
+        <tr>
+          <th data-sort="text">Strategy</th>
+          <th data-sort="text">Bet Details</th>
+          <th data-sort="text">Underlying</th>
+          <th class="number" data-sort="number">Stock Move %</th>
+          <th class="number" data-sort="number">Actual P/L</th>
+          {% for column in visible_columns %}
+            <th class="number" data-sort="number">{{ column.label }}</th>
+          {% endfor %}
+          <th data-sort="text">Best</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          {% set row_key = loop.index %}
+          <tr data-whatif-row data-strategy-id="{{ row_key }}">
+            <td data-sort-value="{{ row.strategy|lower }}"><strong>{{ row.strategy }}</strong></td>
+            <td data-sort-value="{{ row.bet_details|lower }}">
+              <button class="row-expander" type="button" data-expand-row="{{ row_key }}" aria-expanded="false" aria-label="Show legs for {{ row.bet_details }}">+</button>
+              <strong>{{ row.bet_details }}</strong>
+              <span class="subtle">{{ row.date }}</span>
+            </td>
+            <td data-sort-value="{{ row.underlying|lower }}"><strong>{{ row.underlying }}</strong></td>
+            <td class="number {{ pl_class(row.stock_move_pct) }}" data-sort-value="{{ row.stock_move_pct if row.stock_move_pct is not none else -999999999 }}">{{ pct(row.stock_move_pct) }}</td>
+            <td class="number {{ pl_class(row.actual_pl) }}" data-sort-value="{{ row.actual_pl if row.actual_pl is not none else -999999999 }}">
+              <strong>{{ money(row.actual_pl) }}</strong>
+              <span class="whatif-cost">Capital {{ money(row.actual_risk) }}</span>
+              <span class="whatif-net">Net {{ money(row.actual_net) }}</span>
+            </td>
+            {% for column in visible_columns %}
+              {% set pl_value = row[column.pl_key] %}
+              {% set net_value = row[column.net_key] %}
+              {% set charges_value = row[column.charges_key] %}
+              {% set capital_value = row[column.risk_key] %}
+              <td class="number {{ pl_class(pl_value) }}" data-sort-value="{{ pl_value if pl_value is not none else -999999999 }}">
+                <strong>{{ money(pl_value) }}</strong>
+                {% if pl_value is not none %}
+                  <span class="whatif-cost">Capital {{ money(capital_value) }}</span>
+                  <span class="whatif-cost">Charges {{ money(charges_value) }}</span>
+                  <span class="whatif-net">Net {{ money(net_value) }}</span>
+                {% endif %}
+              </td>
+            {% endfor %}
+            <td data-sort-value="{{ row.best|lower }}">{{ row.best }}</td>
+          </tr>
+          <tr class="option-leg-row" data-detail-for="{{ row_key }}" hidden>
+            <td colspan="{{ 6 + visible_columns|length }}">
+              <div class="option-leg-detail">
+                <table class="leg-detail-table">
+                  <tbody>
+                    {% for leg in row.legs %}
+                      <tr>
+                        <td>{{ leg.leg_no }}</td>
+                        <td><span class="leg-action {{ leg.action|lower }}">{{ leg.action }}</span></td>
+                        <td><strong>{{ leg.ticker }}</strong></td>
+                        <td class="number">Qty {{ number(leg.qty) }}</td>
+                        <td class="number">Entry {{ money(leg.buy_price) }}</td>
+                        <td class="number">Exit {{ money(leg.sell_price) }}</td>
+                        <td class="number {{ pl_class(leg.achieved_pl) }}">{{ money(leg.achieved_pl) }}</td>
+                      </tr>
+                    {% else %}
+                      <tr>
+                        <td colspan="7" class="empty">No legs recorded for this option bet.</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="{{ 6 + visible_columns|length }}" class="empty">No closed option bets available for what-if comparison.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-pagination" data-whatif-pagination></div>
+</section>
+
+<script>
+(function () {
+  const table = document.querySelector(".whatif-report-table");
+  const pager = document.querySelector("[data-whatif-pagination]");
+  if (!table || !pager) return;
+
+  const tbody = table.querySelector("tbody");
+  const allRows = Array.from(tbody.querySelectorAll("tr"));
+  const emptyRows = allRows.filter((row) => row.querySelector(".empty") && !row.dataset.detailFor);
+  const detailRows = new Map(
+    allRows.filter((row) => row.dataset.detailFor).map((row) => [row.dataset.detailFor, row])
+  );
+  const rows = allRows.filter((row) => row.hasAttribute("data-whatif-row"));
+  const pageSize = Number(table.dataset.pageSize || 15);
+  let page = 1;
+
+  function cellValue(row, columnIndex, numeric) {
+    const cell = row.children[columnIndex];
+    const raw = cell ? (cell.dataset.sortValue || cell.textContent.trim()) : "";
+    if (!numeric) return raw.toLowerCase();
+    const value = Number(String(raw).replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  function render() {
+    tbody.innerHTML = "";
+    if (!rows.length) {
+      emptyRows.forEach((row) => tbody.appendChild(row));
+      pager.innerHTML = "";
+      return;
+    }
+    const totalPages = Math.max(Math.ceil(rows.length / pageSize), 1);
+    page = Math.min(Math.max(page, 1), totalPages);
+    rows.slice((page - 1) * pageSize, page * pageSize).forEach((row) => appendRow(row));
+    pager.innerHTML = `
+      <span>Page ${page} of ${totalPages} - ${rows.length} rows</span>
+      <button class="button" type="button" data-page="prev" ${page === 1 ? "disabled" : ""}>Prev</button>
+      <button class="button" type="button" data-page="next" ${page === totalPages ? "disabled" : ""}>Next</button>
+    `;
+  }
+
+  function appendRow(row) {
+    tbody.appendChild(row);
+    const detailRow = detailRows.get(row.dataset.strategyId);
+    if (detailRow) {
+      tbody.appendChild(detailRow);
+    }
+  }
+
+  table.querySelectorAll("th[data-sort]").forEach((header, columnIndex) => {
+    header.classList.add("sortable-heading");
+    header.addEventListener("click", () => {
+      const direction = header.classList.contains("sorted-asc") ? "desc" : "asc";
+      table.querySelectorAll("th[data-sort]").forEach((item) => item.classList.remove("sorted-asc", "sorted-desc"));
+      header.classList.add(direction === "asc" ? "sorted-asc" : "sorted-desc");
+      const numeric = header.dataset.sort === "number";
+      rows.sort((left, right) => {
+        const leftValue = cellValue(left, columnIndex, numeric);
+        const rightValue = cellValue(right, columnIndex, numeric);
+        if (leftValue < rightValue) return direction === "asc" ? -1 : 1;
+        if (leftValue > rightValue) return direction === "asc" ? 1 : -1;
+        return 0;
+      });
+      page = 1;
+      render();
+    });
+  });
+
+  pager.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-page]");
+    if (!button) return;
+    page += button.dataset.page === "next" ? 1 : -1;
+    render();
+  });
+
+  table.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-expand-row]");
+    if (!button) return;
+    const detailRow = detailRows.get(button.dataset.expandRow);
+    if (!detailRow) return;
+    const shouldOpen = button.getAttribute("aria-expanded") !== "true";
+    detailRows.forEach((row) => {
+      row.hidden = true;
+    });
+    table.querySelectorAll("[data-expand-row]").forEach((item) => {
+      item.setAttribute("aria-expanded", "false");
+      item.textContent = "+";
+    });
+    if (shouldOpen) {
+      button.setAttribute("aria-expanded", "true");
+      button.textContent = "-";
+      detailRow.hidden = false;
+    }
+  });
+
+  render();
+}());
+</script>
+{% endblock %}

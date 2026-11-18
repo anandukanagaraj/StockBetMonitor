@@ -2,14 +2,94 @@ from copy import copy
 from datetime import date, datetime
 from pathlib import Path
 
+from openpyxl import Workbook
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from services.date_utils import normalized_buy_date_map, parse_date, position_identity
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-SOURCE_TEMPLATE = BASE_DIR.parent / "StockMonitor" / "data" / "Portfolio.xlsx"
+SOURCE_TEMPLATE_CANDIDATES = [
+    BASE_DIR / "data" / "Portfolio.xlsx",
+    BASE_DIR.parent / "StockMonitor" / "data" / "Portfolio.xlsx",
+    BASE_DIR.parent / "Whatsapp Alerts" / "StockMonitor-V2" / "data" / "Portfolio.xlsx",
+]
 EXPORT_DIR = BASE_DIR / "exports"
+HEADERS = [
+    None,
+    "Bet Count",
+    "Buy Date",
+    "Sell Date",
+    "Ticker",
+    "Qty",
+    "Buy Price",
+    "Trade Capital",
+    "Target Price",
+    "Stop Loss",
+    "Current Price",
+    "Sell Price",
+    "Target Profit",
+    "Target Loss",
+    "Achieved P/L",
+    "Status",
+]
+
+
+def find_source_template():
+    for candidate in SOURCE_TEMPLATE_CANDIDATES:
+        if candidate.exists():
+            return candidate
+
+    existing_exports = sorted(
+        EXPORT_DIR.glob("portfolio_export_*.xlsx"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return existing_exports[0] if existing_exports else None
+
+
+def create_blank_workbook():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Bets"
+
+    sheet["B2"] = "Bets"
+    sheet["B2"].font = Font(bold=True, size=16, color="0F172A")
+    sheet["B3"] = "Exported portfolio bets"
+    sheet["B3"].font = Font(color="64748B")
+
+    header_fill = PatternFill("solid", fgColor="EAF2FB")
+    border = Border(bottom=Side(style="thin", color="D8E3F0"))
+    for col, header in enumerate(HEADERS, start=1):
+        cell = sheet.cell(4, col)
+        cell.value = header
+        cell.font = Font(bold=True, color="24364F")
+        cell.fill = header_fill
+        cell.border = border
+        cell.alignment = Alignment(horizontal="center")
+
+    widths = {
+        "B": 12,
+        "C": 13,
+        "D": 13,
+        "E": 18,
+        "F": 10,
+        "G": 13,
+        "H": 15,
+        "I": 13,
+        "J": 13,
+        "K": 14,
+        "L": 13,
+        "M": 15,
+        "N": 15,
+        "O": 15,
+        "P": 13,
+    }
+    for column, width in widths.items():
+        sheet.column_dimensions[column].width = width
+    sheet.freeze_panes = "B5"
+    return workbook
 
 
 def excel_date_text(value):
@@ -64,10 +144,8 @@ def write_position(sheet, row_number, position, normalized_buy_date=None):
 
 
 def export_positions_to_excel(positions):
-    if not SOURCE_TEMPLATE.exists():
-        raise FileNotFoundError(f"Source Excel template not found: {SOURCE_TEMPLATE}")
-
-    workbook = load_workbook(SOURCE_TEMPLATE)
+    source_template = find_source_template()
+    workbook = load_workbook(source_template) if source_template else create_blank_workbook()
     sheet = workbook.active
     sheet.title = "Bets"
     start_row = 5

@@ -1,0 +1,656 @@
+{% extends "base.html" %}
+
+{% macro allocation_bars(rows, label_key, empty_text, theme="stock") %}
+  <div class="portfolio-allocation-list portfolio-allocation-{{ theme }}">
+    {% for row in rows %}
+      <div class="portfolio-allocation-row" style="--bar-width: {{ row.pct }}%;">
+        <div class="portfolio-allocation-meta">
+          <div class="portfolio-allocation-title">
+            <span class="portfolio-rank">{{ loop.index }}</span>
+            <strong>{{ row[label_key] }}</strong>
+          </div>
+          <div class="portfolio-allocation-stats">
+            <span class="portfolio-allocation-bets">{{ row.open_bets }} open</span>
+            <span class="portfolio-allocation-value" title="{{ money(row.capital) }}">{{ compact_money(row.capital) }}</span>
+          </div>
+        </div>
+        <div class="portfolio-allocation-bar" aria-hidden="true">
+          <span></span>
+        </div>
+        <div class="portfolio-allocation-foot">
+          <span class="portfolio-pct-chip">{{ row.pct }}% exposure</span>
+          <span class="portfolio-realized {{ pl_class(row.realized_pl) }}" title="{{ money(row.realized_pl) }}">Realized {{ compact_money(row.realized_pl) }}</span>
+        </div>
+      </div>
+    {% else %}
+      <div class="portfolio-empty-state">
+        <span class="portfolio-empty-icon" aria-hidden="true">—</span>
+        <p>{{ empty_text }}</p>
+      </div>
+    {% endfor %}
+  </div>
+{% endmacro %}
+
+{% block content %}
+{% set stock_seg = analytics.segment_allocation|selectattr("segment", "equalto", "Stocks")|first %}
+{% set option_seg = analytics.segment_allocation|selectattr("segment", "equalto", "Options")|first %}
+{% set stock_pct = stock_seg.pct if stock_seg else 0 %}
+{% set option_pct = option_seg.pct if option_seg else 0 %}
+
+<section class="manage-hero portfolio-analytics-hero">
+  <div class="portfolio-hero-copy">
+    <p class="eyebrow">Portfolio Analytics</p>
+    <h1>Portfolio Overview</h1>
+    <p>Equity curve, drawdown, and open capital allocation across stock groups and options.</p>
+    <div class="portfolio-hero-pills">
+      <span class="portfolio-pill">{{ analytics.summary.open_stock_bets + analytics.summary.open_option_bets }} open bets</span>
+      <span class="portfolio-pill">{{ analytics.summary.closed_trades }} closed trades</span>
+      <span class="portfolio-pill">Stock {{ stock_pct }}% · Option {{ option_pct }}%</span>
+    </div>
+  </div>
+  <div class="hero-actions">
+    <a class="button primary" href="{{ url_for('pl_calendar') }}">P/L Calendar</a>
+    <a class="button" href="{{ url_for('index') }}">Dashboard</a>
+  </div>
+</section>
+
+<section class="dashboard-summary portfolio-analytics-summary">
+  <article class="summary-card primary-summary portfolio-kpi-card">
+    <span class="portfolio-kpi-icon portfolio-kpi-icon-total" aria-hidden="true">Σ</span>
+    <span>Total Portfolio P/L (Stocks + Options)</span>
+    <strong class="{{ pl_class(analytics.summary.total_actual_pl) }}">{{ money(analytics.summary.total_actual_pl) }}</strong>
+    <small>Stocks {{ money(analytics.summary.stock_total_pl) }} · Options {{ money(analytics.summary.option_realized_pl) }}</small>
+  </article>
+  <article class="summary-card portfolio-kpi-card">
+    <span class="portfolio-kpi-icon portfolio-kpi-icon-realized" aria-hidden="true">₹</span>
+    <span>Realized P/L</span>
+    <strong class="{{ pl_class(analytics.summary.total_realized_pl) }}">{{ money(analytics.summary.total_realized_pl) }}</strong>
+    <small>Stock {{ money(analytics.summary.stock_realized_pl) }} · Option {{ money(analytics.summary.option_realized_pl) }}</small>
+  </article>
+  <article class="summary-card portfolio-kpi-card">
+    <span class="portfolio-kpi-icon portfolio-kpi-icon-exposure" aria-hidden="true">◎</span>
+    <span>Open Exposure</span>
+    <strong>{{ money(analytics.summary.open_exposure_total) }}</strong>
+    <small>Stock {{ money(analytics.summary.open_stock_capital) }} · Option {{ money(analytics.summary.open_option_risk_capital) }}</small>
+  </article>
+  <article class="summary-card portfolio-kpi-card {{ 'danger-card' if analytics.drawdown.current_pct and analytics.drawdown.current_pct < -10 else '' }}">
+    <span class="portfolio-kpi-icon portfolio-kpi-icon-drawdown" aria-hidden="true">↓</span>
+    <span>Drawdown from Peak</span>
+    <strong class="{{ pl_class(analytics.drawdown.current_amount) }}">
+      {% if analytics.drawdown.current_pct is not none %}
+        {{ "0.00%" if analytics.drawdown.current_pct == 0 else pct(analytics.drawdown.current_pct) }}
+      {% else %}
+        -
+      {% endif %}
+    </strong>
+    <small>
+      {% if analytics.drawdown.peak_value is not none %}
+        Peak {{ money(analytics.drawdown.peak_value) }} · Max {{ pct(analytics.drawdown.max_pct) if analytics.drawdown.max_pct is not none else "-" }}
+      {% else %}
+        No equity history yet
+      {% endif %}
+    </small>
+  </article>
+</section>
+
+{% set funding = analytics.investment_funding %}
+<section class="management-panel portfolio-capital-plan portfolio-funding-panel">
+  <div class="panel-head portfolio-panel-head">
+    <div><p class="eyebrow">Capital sources · Stocks only</p><h2>Stock Investment &amp; Reinvestment Details</h2><p>Estimated only from recorded stock buys and closures. Options are excluded. Available closed stock capital is reused first, then realized stock profit; any shortfall is counted as a new deposit.</p></div>
+    <div class="portfolio-capital-recommendation"><span>Estimated amount deposited</span><strong title="{{ money(funding.estimated_deposited) }}">{{ compact_money(funding.estimated_deposited) }}</strong><small>Minimum outside cash needed for recorded stock bets</small></div>
+  </div>
+  <div class="portfolio-capital-plan-grid">
+    <article><span>Realized stock P/L on deposited capital</span><strong class="{{ pl_class(funding.stock_realized_pl) }}">{{ pct(funding.pl_on_deposited_pct) if funding.pl_on_deposited_pct is not none else "-" }}</strong><small>Realized stock P/L {{ money(funding.stock_realized_pl) }} ÷ {{ money(funding.estimated_deposited) }} deposited; unrealized P/L and options excluded</small></article>
+    <article><span>Total capital put into bets</span><strong>{{ compact_money(funding.total_entry_capital) }}</strong><small>Includes reused money across multiple bets</small></article>
+    <article><span>Closed bet amount reinvested</span><strong>{{ compact_money(funding.closed_capital_reinvested) }}</strong><small>Of {{ money(funding.closed_capital_returned) }} principal returned</small></article>
+    <article><span>Profit reinvested</span><strong>{{ compact_money(funding.profit_reinvested) }}</strong><small>Of {{ money(funding.realized_profit_available) }} positive profit generated</small></article>
+    <article><span>Estimated cash available</span><strong>{{ compact_money(funding.cash_remaining) }}</strong><small>{{ money(funding.closed_capital_cash_remaining) }} principal + {{ money(funding.profit_cash_remaining) }} profit</small></article>
+  </div>
+  <div class="portfolio-funding-table-wrap"><table class="management-table portfolio-funding-table" data-funding-table data-page-size="10">
+    <thead><tr><th data-sort="text">Date</th><th data-sort="text">Investment</th><th data-sort="number">Bet capital</th><th data-sort="number">From closed bets</th><th data-sort="number">From profit</th><th data-sort="number">New deposit</th></tr></thead>
+    <tbody>{% for row in funding.entries|reverse %}<tr data-funding-row><td data-sort-value="{{ row.date }}">{{ row.date }}</td><td data-sort-value="{{ row.label|lower }}">{{ row.label }}</td><td data-sort-value="{{ row.capital }}">{{ money(row.capital) }}</td><td data-sort-value="{{ row.closed_capital_reinvested }}">{{ money(row.closed_capital_reinvested) }}</td><td data-sort-value="{{ row.profit_reinvested }}">{{ money(row.profit_reinvested) }}</td><td data-sort-value="{{ row.new_deposit }}"><strong>{{ money(row.new_deposit) }}</strong></td></tr>{% else %}<tr><td colspan="6" class="empty">No dated investments are available.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <div class="table-pagination portfolio-funding-pagination" data-funding-pagination></div>
+  <div class="portfolio-capital-method">Stocks only; option trades are excluded. This is an estimate, not a bank ledger. It assumes no withdrawals, retains all stock-sale proceeds, and makes same-day sale proceeds available to same-day stock buys.</div>
+</section>
+
+<script>
+(() => {
+  const table = document.querySelector("[data-funding-table]");
+  const pager = document.querySelector("[data-funding-pagination]");
+  if (!table || !pager) return;
+  const tbody = table.tBodies[0];
+  let rows = Array.from(tbody.querySelectorAll("tr[data-funding-row]"));
+  if (!rows.length) return;
+  let page = 1;
+  let pageSize = Number(table.dataset.pageSize || 10);
+
+  function render() {
+    const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+    page = Math.min(Math.max(1, page), pages);
+    const start = (page - 1) * pageSize;
+    tbody.replaceChildren(...rows.slice(start, start + pageSize));
+    pager.innerHTML = `<span>${start + 1}-${Math.min(start + pageSize, rows.length)} of ${rows.length} stock investments</span>
+      <label class="portfolio-page-size">Rows <select data-funding-page-size><option value="10">10</option><option value="25">25</option><option value="50">50</option></select></label>
+      <button class="button" type="button" data-page="prev" ${page === 1 ? "disabled" : ""}>Prev</button>
+      <button class="button" type="button" data-page="next" ${page === pages ? "disabled" : ""}>Next</button>`;
+    pager.querySelector("select").value = String(pageSize);
+  }
+
+  table.querySelectorAll("th[data-sort]").forEach((header, column) => {
+    header.classList.add("sortable-heading");
+    header.addEventListener("click", () => {
+      const direction = header.dataset.direction === "asc" ? "desc" : "asc";
+      table.querySelectorAll("th[data-sort]").forEach(item => { item.dataset.direction = ""; item.classList.remove("sorted-asc", "sorted-desc"); });
+      header.dataset.direction = direction;
+      header.classList.add(direction === "asc" ? "sorted-asc" : "sorted-desc");
+      const numeric = header.dataset.sort === "number";
+      rows.sort((a, b) => {
+        const leftRaw = a.cells[column].dataset.sortValue || a.cells[column].textContent.trim();
+        const rightRaw = b.cells[column].dataset.sortValue || b.cells[column].textContent.trim();
+        const left = numeric ? Number(leftRaw) : leftRaw.toLowerCase();
+        const right = numeric ? Number(rightRaw) : rightRaw.toLowerCase();
+        return (left < right ? -1 : left > right ? 1 : 0) * (direction === "asc" ? 1 : -1);
+      });
+      page = 1;
+      render();
+    });
+  });
+
+  pager.addEventListener("click", event => {
+    const button = event.target.closest("button[data-page]");
+    if (!button) return;
+    page += button.dataset.page === "next" ? 1 : -1;
+    render();
+  });
+  pager.addEventListener("change", event => {
+    if (!event.target.matches("[data-funding-page-size]")) return;
+    pageSize = Number(event.target.value);
+    page = 1;
+    render();
+  });
+  render();
+})();
+</script>
+
+{% if analytics.stock_capital_forecast %}
+{% set capital_plan = analytics.stock_capital_forecast %}
+<section class="management-panel portfolio-capital-plan">
+  <div class="panel-head portfolio-panel-head">
+    <div>
+      <p class="eyebrow">Forward capacity · Stocks only</p>
+      <h2>365-Day Stock Capital Plan</h2>
+      <p>Recalculated on every page load from stock-bet data only: recorded buy pace, closure pace, and capital per bet. Options are excluded.</p>
+    </div>
+    <div class="portfolio-capital-recommendation">
+      <span>Recommended capital</span>
+      <strong title="{{ money(capital_plan.recommended_capital) }}">{{ compact_money(capital_plan.recommended_capital) }}</strong>
+      <small>{{ money(capital_plan.working_capital) }} working capital + {{ capital_plan.reserve_pct }}% reserve</small>
+    </div>
+  </div>
+  <div class="portfolio-capital-plan-grid">
+    <article>
+      <span>Current stock capital deployed</span>
+      <strong title="{{ money(capital_plan.current_open_capital) }}">{{ compact_money(capital_plan.current_open_capital) }}</strong>
+      <small>{{ capital_plan.open_bets_observed }} stock bets currently open</small>
+    </article>
+    <article>
+      <span>Additional capital to arrange</span>
+      <strong title="{{ money(capital_plan.additional_capital) }}">{{ compact_money(capital_plan.additional_capital) }}</strong>
+      <small>Includes {{ money(capital_plan.reserve_capital) }} liquidity reserve</small>
+    </article>
+    <article>
+      <span>Expected net capital build-up</span>
+      <strong title="{{ money(capital_plan.projected_net_capital) }}">{{ compact_money(capital_plan.projected_net_capital) }}</strong>
+      <small>{{ capital_plan.projected_net_bets }} more open bets projected in 365 days</small>
+    </article>
+    <article>
+      <span>Typical capital per stock bet</span>
+      <strong title="{{ money(capital_plan.average_bet_capital) }}">{{ compact_money(capital_plan.average_bet_capital) }}</strong>
+      <small>{{ capital_plan.bets_observed }} recorded buys analysed</small>
+    </article>
+  </div>
+  <div class="portfolio-capital-method">
+    <span>Calculated {{ capital_plan.as_of_date }} · observed {{ capital_plan.observed_days }} days since {{ capital_plan.first_buy_date }}:</span>
+    <strong>{{ capital_plan.entries_per_day }} bets added/day</strong>
+    <span>·</span>
+    <strong>{{ capital_plan.closures_per_day }} bets closed/day</strong>
+    <span>·</span>
+    <span>Next 365 days: about {{ capital_plan.projected_entries }} new bets and {{ capital_plan.projected_closures }} closures.</span>
+  </div>
+  <div class="portfolio-capital-break-even">
+    <div>
+      <p class="eyebrow">Fresh-capital break-even</p>
+      <h3>When would I stop adding more capital?</h3>
+      <p>When stock closures broadly fund new stock entries and the liquidity reserve is already available. At the current pace, closures need to rise from <strong>{{ capital_plan.closures_per_day }}</strong> to about <strong>{{ capital_plan.break_even_closures_per_day }} bets/day</strong>.</p>
+    </div>
+    <div class="portfolio-break-even-grid">
+      <article><span>Current annual closures</span><strong>{{ capital_plan.projected_closures }}</strong><small>Based on observed closure pace</small></article>
+      <article><span>Annual closures needed</span><strong>{{ capital_plan.projected_entries }}</strong><small>Approximately one closure per new entry</small></article>
+      <article><span>Closure shortfall</span><strong>{{ capital_plan.additional_closures_annual }}</strong><small>Additional closures/year at the current entry pace</small></article>
+      <article><span>Reserve once flow balances</span><strong>{{ compact_money(capital_plan.current_cycle_reserve) }}</strong><small>{{ capital_plan.reserve_pct }}% of current open stock capital</small></article>
+    </div>
+    <p class="portfolio-break-even-note">The forecast does not currently subtract idle cash or retained realized profit from capital required. If those funds are available, the actual fresh deposit needed may be lower.</p>
+  </div>
+</section>
+{% endif %}
+
+{% include '_stock_bet_activity.html' %}
+
+<section class="dashboard-grid portfolio-analytics-grid portfolio-charts-grid">
+  <article class="management-panel option-growth-panel portfolio-chart-panel portfolio-chart-panel-equity">
+    <div class="panel-head portfolio-panel-head">
+      <div>
+        <p class="eyebrow">Performance</p>
+        <h2>Equity Curve</h2>
+        <p>Realized P/L plus timestamped mark-to-market snapshots from scheduled stock-price checks.</p>
+      </div>
+      <span class="portfolio-panel-badge portfolio-panel-badge-equity">Price snapshots</span>
+    </div>
+    <div class="option-growth-chart portfolio-chart-surface" data-growth-chart='{{ analytics.equity_curve|tojson }}' data-chart-kind="equity">
+      <canvas width="1100" height="320" aria-label="Portfolio equity curve"></canvas>
+      <div class="chart-empty">No closed trades yet.</div>
+      <div class="option-chart-tooltip portfolio-chart-tooltip" data-chart-tooltip></div>
+    </div>
+    <div class="option-chart-legend portfolio-chart-legend">
+      <span><i class="win-dot"></i> Positive movement</span>
+      <span><i class="loss-dot"></i> Negative movement</span>
+      <span><i class="line-dot"></i> Portfolio P/L</span>
+    </div>
+  </article>
+
+  <article class="management-panel option-growth-panel portfolio-chart-panel portfolio-chart-panel-drawdown">
+    <div class="panel-head portfolio-panel-head">
+      <div>
+        <p class="eyebrow">Risk</p>
+        <h2>Drawdown</h2>
+        <p>Distance from the running equity peak. Current peak: {{ money(analytics.drawdown.peak_value) if analytics.drawdown.peak_value is not none else "-" }}.</p>
+      </div>
+      <span class="portfolio-panel-badge portfolio-panel-badge-drawdown">From peak</span>
+    </div>
+    <div class="option-growth-chart portfolio-chart-surface" data-drawdown-chart='{{ analytics.drawdown.series|tojson }}'>
+      <canvas width="1100" height="280" aria-label="Portfolio drawdown chart"></canvas>
+      <div class="chart-empty">No drawdown data yet.</div>
+      <div class="option-chart-tooltip portfolio-chart-tooltip" data-chart-tooltip></div>
+    </div>
+    <div class="option-chart-legend portfolio-chart-legend">
+      <span><i class="loss-dot"></i> Drawdown from peak</span>
+      <span>Max drawdown: <strong class="{{ pl_class(analytics.drawdown.max_amount) }}">{{ money(analytics.drawdown.max_amount) }}</strong></span>
+    </div>
+  </article>
+</section>
+
+<section class="dashboard-grid portfolio-analytics-grid portfolio-allocation-grid">
+  <article class="management-panel dashboard-panel portfolio-segment-panel">
+    <div class="panel-head portfolio-panel-head">
+      <div>
+        <p class="eyebrow">Allocation</p>
+        <h2>Stocks vs Options</h2>
+        <p>Open capital allocation across portfolio segments.</p>
+      </div>
+    </div>
+    <div class="portfolio-segment-layout">
+      <div class="portfolio-donut-wrap" aria-hidden="true">
+        <div class="portfolio-donut" style="--stock-pct: {{ stock_pct }}; --option-pct: {{ option_pct }};">
+          <div class="portfolio-donut-hole">
+            <strong title="{{ money(analytics.summary.open_exposure_total) }}">{{ compact_money(analytics.summary.open_exposure_total) }}</strong>
+            <span>Total exposure</span>
+          </div>
+        </div>
+        <div class="portfolio-donut-legend">
+          <span><i class="stock-dot"></i> Stocks {{ stock_pct }}%</span>
+          <span><i class="option-dot"></i> Options {{ option_pct }}%</span>
+        </div>
+      </div>
+      <div class="portfolio-segment-grid">
+        {% for row in analytics.segment_allocation %}
+          <div class="portfolio-segment-card portfolio-segment-{{ row.segment|lower }}">
+            <div class="portfolio-segment-head">
+              <span class="portfolio-segment-icon" aria-hidden="true">{{ "S" if row.segment == "Stocks" else "O" }}</span>
+              <span>{{ row.segment }}</span>
+            </div>
+            <strong title="{{ money(row.capital) }}">{{ compact_money(row.capital) }}</strong>
+            <small>{{ row.open_bets }} open bets · {{ row.pct }}%</small>
+            <div class="portfolio-allocation-bar portfolio-segment-bar" aria-hidden="true">
+              <span style="width: {{ row.pct }}%;"></span>
+            </div>
+          </div>
+        {% else %}
+          <div class="portfolio-empty-state">
+            <span class="portfolio-empty-icon" aria-hidden="true">—</span>
+            <p>No open exposure recorded.</p>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="portfolio-stat-strip">
+      <div class="portfolio-stat-chip">
+        <span>Stock unrealized P/L</span>
+        <strong class="{{ pl_class(analytics.summary.stock_unrealized_pl) }}" title="{{ money(analytics.summary.stock_unrealized_pl) }}">{{ compact_money(analytics.summary.stock_unrealized_pl) }}</strong>
+      </div>
+      <div class="portfolio-stat-chip">
+        <span>Closed trades analysed</span>
+        <strong>{{ analytics.summary.closed_trades }}</strong>
+      </div>
+      <div class="portfolio-stat-chip">
+        <span>Open stock bets</span>
+        <strong>{{ analytics.summary.open_stock_bets }}</strong>
+      </div>
+      <div class="portfolio-stat-chip">
+        <span>Open option bets</span>
+        <strong>{{ analytics.summary.open_option_bets }}</strong>
+      </div>
+    </div>
+  </article>
+
+  <article class="management-panel dashboard-panel portfolio-allocation-panel">
+    <div class="panel-head portfolio-panel-head">
+      <div>
+        <p class="eyebrow">Stocks</p>
+        <h2>Stock Group Allocation</h2>
+        <p>Open capital by stock trade group.</p>
+      </div>
+    </div>
+    {{ allocation_bars(analytics.stock_group_allocation, "name", "No stock group exposure yet.", "stock") }}
+  </article>
+
+  <article class="management-panel dashboard-panel portfolio-allocation-panel">
+    <div class="panel-head portfolio-panel-head">
+      <div>
+        <p class="eyebrow">Options</p>
+        <h2>Option Group Allocation</h2>
+        <p>Open risk capital by option trade group.</p>
+      </div>
+    </div>
+    {{ allocation_bars(analytics.option_group_allocation, "name", "No option group exposure yet.", "option") }}
+  </article>
+</section>
+
+<script>
+(() => {
+  function formatMoney(value) {
+    const amount = Number(value || 0);
+    const abs = Math.abs(amount);
+    const prefix = amount < 0 ? "-" : "";
+    if (abs >= 10000000) return `${prefix}₹${(abs / 10000000).toFixed(2)} Cr`;
+    if (abs >= 100000) return `${prefix}₹${(abs / 100000).toFixed(2)} L`;
+    if (abs >= 1000) return `${prefix}₹${(abs / 1000).toFixed(2)} k`;
+    return `${prefix}₹${abs.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  function formatDate(value) {
+    if (!value) return "-";
+    const date = new Date(value.length > 10 ? value : `${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  }
+
+  function formatPct(value) {
+    const amount = Number(value || 0);
+    const prefix = amount > 0 ? "+" : "";
+    return `${prefix}${amount.toFixed(2)}%`;
+  }
+
+  document.querySelectorAll("[data-growth-chart]").forEach((chart) => {
+    const points = JSON.parse(chart.dataset.growthChart || "[]");
+    const canvas = chart.querySelector("canvas");
+    const empty = chart.querySelector(".chart-empty");
+    const tooltip = chart.querySelector("[data-chart-tooltip]");
+    const ctx = canvas.getContext("2d");
+
+    if (!points.length) {
+      canvas.style.display = "none";
+      empty.style.display = "grid";
+      return;
+    }
+
+    empty.style.display = "none";
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = { top: 28, right: 72, bottom: 48, left: 58 };
+    const values = points.map((point) => point.value);
+    const minValue = Math.min(0, ...values);
+    const maxValue = Math.max(0, ...values);
+    const range = maxValue - minValue || 1;
+
+    function xFor(index) {
+      if (points.length === 1) {
+        return padding.left + (width - padding.left - padding.right) / 2;
+      }
+      return padding.left + (index / (points.length - 1)) * (width - padding.left - padding.right);
+    }
+
+    function yFor(value) {
+      return padding.top + (1 - ((value - minValue) / range)) * (height - padding.top - padding.bottom);
+    }
+
+    const coords = points.map((point, index) => ({
+      ...point,
+      x: xFor(index),
+      y: yFor(point.value),
+    }));
+    const zeroY = yFor(0);
+    let activeIndex = coords.length - 1;
+
+    function drawChart(highlightIndex = activeIndex) {
+      ctx.clearRect(0, 0, width, height);
+      ctx.font = "12px Inter, Arial, sans-serif";
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "#e2e8f0";
+      ctx.beginPath();
+      ctx.moveTo(padding.left, zeroY);
+      ctx.lineTo(width - padding.right, zeroY);
+      ctx.stroke();
+
+      [minValue, 0, maxValue].forEach((value) => {
+        const y = yFor(value);
+        ctx.fillStyle = "#64748b";
+        ctx.textAlign = "right";
+        ctx.fillText(formatMoney(value), width - 12, y + 4);
+        ctx.strokeStyle = value === 0 ? "#cbd5e1" : "#f1f5f9";
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+      });
+
+      const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+      gradient.addColorStop(0, "rgba(14, 165, 233, .28)");
+      gradient.addColorStop(1, "rgba(14, 165, 233, .03)");
+      ctx.beginPath();
+      coords.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.lineTo(coords[coords.length - 1].x, zeroY);
+      ctx.lineTo(coords[0].x, zeroY);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      ctx.beginPath();
+      coords.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.strokeStyle = "#0284c7";
+      ctx.lineWidth = 3;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.stroke();
+
+      if (highlightIndex >= 0) {
+        const active = coords[highlightIndex];
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = "rgba(2, 132, 199, .35)";
+        ctx.beginPath();
+        ctx.moveTo(active.x, padding.top);
+        ctx.lineTo(active.x, height - padding.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      coords.forEach((point, index) => {
+        const isActive = index === highlightIndex;
+        ctx.beginPath();
+        if (point.outcome === "loss") ctx.fillStyle = "#dc2626";
+        else if (point.outcome === "win") ctx.fillStyle = "#f59e0b";
+        else ctx.fillStyle = "#64748b";
+        ctx.arc(point.x, point.y, isActive ? 6.5 : 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = isActive ? 2.5 : 2;
+        ctx.stroke();
+      });
+
+      const labelIndexes = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
+      labelIndexes.forEach((index) => {
+        const point = coords[index];
+        ctx.fillStyle = "#475569";
+        ctx.textAlign = index === 0 ? "left" : index === points.length - 1 ? "right" : "center";
+        ctx.fillText(formatDate(point.date), point.x, height - 18);
+      });
+    }
+
+    drawChart();
+
+    canvas.addEventListener("mousemove", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) * (canvas.width / rect.width);
+      const nearestIndex = coords.reduce((best, point, index) => {
+        const distance = Math.abs(point.x - x);
+        return distance < best.distance ? { index, distance } : best;
+      }, { index: 0, distance: Infinity }).index;
+      activeIndex = nearestIndex;
+      const nearest = coords[nearestIndex];
+      drawChart(nearestIndex);
+      tooltip.innerHTML = `
+        <strong>${nearest.label}</strong>
+        <span>${nearest.source || "Portfolio"} · ${formatDate(nearest.date)}</span>
+        <span>Period: ${formatMoney(nearest.pl)}</span>
+        <span>Total: ${formatMoney(nearest.value)}</span>
+      `;
+      tooltip.style.display = "grid";
+      tooltip.style.left = `${Math.min(Math.max(event.offsetX + 14, 12), chart.clientWidth - 190)}px`;
+      tooltip.style.top = `${Math.max(event.offsetY - 76, 12)}px`;
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+      activeIndex = coords.length - 1;
+      drawChart(activeIndex);
+      tooltip.style.display = "none";
+    });
+  });
+
+  document.querySelectorAll("[data-drawdown-chart]").forEach((chart) => {
+    const points = JSON.parse(chart.dataset.drawdownChart || "[]");
+    const canvas = chart.querySelector("canvas");
+    const empty = chart.querySelector(".chart-empty");
+    const tooltip = chart.querySelector("[data-chart-tooltip]");
+    const ctx = canvas.getContext("2d");
+
+    if (!points.length) {
+      canvas.style.display = "none";
+      empty.style.display = "grid";
+      return;
+    }
+
+    empty.style.display = "none";
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = { top: 28, right: 72, bottom: 48, left: 58 };
+    const values = points.map((point) => point.drawdown_amount);
+    const minValue = Math.min(0, ...values);
+    const maxValue = 0;
+    const range = maxValue - minValue || 1;
+
+    function xFor(index) {
+      if (points.length === 1) {
+        return padding.left + (width - padding.left - padding.right) / 2;
+      }
+      return padding.left + (index / (points.length - 1)) * (width - padding.left - padding.right);
+    }
+
+    function yFor(value) {
+      return padding.top + (1 - ((value - minValue) / range)) * (height - padding.top - padding.bottom);
+    }
+
+    const coords = points.map((point, index) => ({
+      ...point,
+      x: xFor(index),
+      y: yFor(point.drawdown_amount),
+    }));
+    const zeroY = yFor(0);
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.font = "12px Inter, Arial, sans-serif";
+    ctx.strokeStyle = "#94a3b8";
+    ctx.beginPath();
+    ctx.moveTo(padding.left, zeroY);
+    ctx.lineTo(width - padding.right, zeroY);
+    ctx.stroke();
+
+    [minValue, 0].forEach((value) => {
+      const y = yFor(value);
+      ctx.fillStyle = "#64748b";
+      ctx.textAlign = "right";
+      ctx.fillText(formatMoney(value), width - 12, y + 4);
+    });
+
+    const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+    gradient.addColorStop(0, "rgba(220, 38, 38, .05)");
+    gradient.addColorStop(1, "rgba(220, 38, 38, .28)");
+    ctx.beginPath();
+    coords.forEach((point, index) => {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.lineTo(coords[coords.length - 1].x, zeroY);
+    ctx.lineTo(coords[0].x, zeroY);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    ctx.beginPath();
+    coords.forEach((point, index) => {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.strokeStyle = "#dc2626";
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    const labelIndexes = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
+    labelIndexes.forEach((index) => {
+      const point = coords[index];
+      ctx.fillStyle = "#475569";
+      ctx.textAlign = index === 0 ? "left" : index === points.length - 1 ? "right" : "center";
+      ctx.fillText(formatDate(point.date), point.x, height - 18);
+    });
+
+    canvas.addEventListener("mousemove", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) * (canvas.width / rect.width);
+      const nearest = coords.reduce((best, point) => {
+        const distance = Math.abs(point.x - x);
+        return distance < best.distance ? { point, distance } : best;
+      }, { point: coords[0], distance: Infinity }).point;
+      tooltip.innerHTML = `
+        <strong>${nearest.label}</strong>
+        <span>${formatDate(nearest.date)}</span>
+        <span>Equity: ${formatMoney(nearest.value)}</span>
+        <span>Peak: ${formatMoney(nearest.peak)}</span>
+        <span>Drawdown: ${formatMoney(nearest.drawdown_amount)} (${formatPct(nearest.drawdown_pct)})</span>
+      `;
+      tooltip.style.display = "grid";
+      tooltip.style.left = `${Math.min(Math.max(event.offsetX + 14, 12), chart.clientWidth - 210)}px`;
+      tooltip.style.top = `${Math.max(event.offsetY - 88, 12)}px`;
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+      tooltip.style.display = "none";
+    });
+  });
+})();
+</script>
+{% endblock %}

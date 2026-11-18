@@ -1,0 +1,69 @@
+<header class="app-header">
+  <a class="brand" href="{{ url_for('index') }}">
+    <span class="brand-mark">
+      <img src="{{ url_for('static', filename='logo-mark.png') }}" alt="" width="42" height="42">
+    </span>
+    <span>
+      <span class="eyebrow">My Portfolio Bets</span>
+      <strong>Retail Bet Platform V3</strong>
+    </span>
+  </a>
+  <nav class="nav-actions" aria-label="Application navigation">
+    <a href="{{ url_for('index') }}">Dashboard</a>
+    <details class="nav-menu fund-menu">
+      <summary>Fund Management</summary>
+      <div class="nav-dropdown">
+        <a href="{{ url_for('fund_management.manage_funds') }}">Manage Funds</a>
+        <a href="{{ url_for('fund_management.manage_investors') }}">Investor Management</a>
+      </div>
+    </details>
+    <details class="nav-menu stock-menu">
+      <summary>Stock Bets</summary>
+      <div class="nav-dropdown">
+        <a href="{{ url_for('new_position') }}">Add / Manage Bets</a>
+        <a href="{{ url_for('manage_stock_alerts') }}">Stock Alerts</a>
+        <a href="{{ url_for('manage_stock_trade_groups') }}">Manage Stock Groups</a>
+        <a href="{{ url_for('index_membership') }}">Portfolio Review</a>
+        <a href="{{ url_for('export_excel') }}">Export Excel</a>
+      </div>
+    </details>
+    <details class="nav-menu reports-menu">
+      <summary>Reports</summary>
+      <div class="nav-dropdown">
+        <a href="{{ url_for('portfolio_analytics') }}">Portfolio Analytics</a>
+        <a href="{{ url_for('report_targets') }}">Live Report</a>
+        <a href="{{ url_for('report_masked') }}">Published Masked Report</a>
+        <a href="{{ url_for('pl_calendar') }}">P/L Calendar</a>
+        <a href="{{ url_for('stock_profit_booking_simulation') }}">Stock Booking Simulation</a>
+        <a href="{{ url_for('historical_portfolio_simulation') }}">Historical Portfolio Simulator</a>
+        <a href="{{ url_for('funding_sustainability_simulation') }}">Funding Sustainability</a>
+      </div>
+    </details>
+    <details class="nav-menu options-menu">
+      <summary>Options</summary>
+      <div class="nav-dropdown">
+        <a href="{{ url_for('options_dashboard') }}">Options Dashboard</a>
+        <a href="{{ url_for('options_whatif_report') }}">Options What-if</a>
+      </div>
+    </details>
+    <details class="nav-menu account-menu">
+      <summary>Account</summary>
+      <div class="nav-dropdown account-dropdown">
+        <span class="account-name">{{ current_username() }}</span>
+        <form method="post" action="{{ url_for('change_password') }}" class="account-password-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="password" name="current_password" placeholder="Current password" required autocomplete="current-password">
+          <input type="password" name="new_password" placeholder="New password (10+ characters)" required minlength="10" autocomplete="new-password">
+          <button class="button secondary" type="submit">Change password</button>
+        </form>
+        {% if is_admin() %}
+          <a href="{{ url_for('manage_users') }}">User Management</a>
+        {% endif %}
+      </div>
+    </details>
+    <form method="post" action="{{ url_for('logout') }}" class="nav-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="link-button" type="submit">Logout</button>
+    </form>
+  </nav>
+</header>

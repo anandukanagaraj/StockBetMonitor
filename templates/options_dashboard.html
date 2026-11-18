@@ -4,21 +4,44 @@
 <section class="manage-hero options-hero">
   <div>
     <p class="eyebrow">V3 Options</p>
-    <h1>{% if selected_strategy_type %}{{ selected_strategy_type }} Performance{% else %}Option Bets Tracker{% endif %}</h1>
-    <p>V2 stock bets stay intact here, with option strategy tracking added on top.</p>
+    <h1>{% if selected_trade_group %}{{ selected_trade_group.name }}{% else %}Option{% endif %} Bets Tracker{% if selected_strategy_type %} · {{ selected_strategy_type }}{% endif %}</h1>
+    <p>Performance, streaks, and bets for the selected Trade Group.</p>
   </div>
   <div class="hero-actions">
-    <a class="button primary" href="{{ url_for('new_option_strategy') }}">Add Option Bet</a>
+    <a class="button primary" href="{{ url_for('new_option_strategy', trade_group_id=selected_trade_group_id) }}">Add Option Bet</a>
+    <a class="button" href="{{ url_for('options_whatif_report', trade_group_id=selected_trade_group_id, strategy_type=selected_strategy_type) }}">What-if Report</a>
+    <a class="button" href="{{ url_for('manage_trade_groups') }}">Manage Groups</a>
     <a class="button" href="{{ url_for('index') }}">Dashboard</a>
   </div>
 </section>
 
 <section class="option-filter-card">
   <div>
-    <span>Strategy Filter</span>
-    <strong>{{ selected_strategy_type or "All Strategies" }}</strong>
+    <span>Trade Group</span>
+    <strong>{{ selected_trade_group.name if selected_trade_group else "No Trade Group" }}</strong>
+    {% if selected_trade_group and selected_trade_group.description %}
+      <p class="trade-group-description">{{ selected_trade_group.description }}</p>
+    {% else %}
+      <p class="trade-group-description empty-description">No description added for this Trade Group.</p>
+    {% endif %}
+    {% if selected_trade_group and not selected_group_reportable %}
+      <p class="trade-group-description">
+        <span class="status warning">Paper Trade</span>
+        This group is available for entry/testing and is excluded from option reports.
+      </p>
+    {% endif %}
   </div>
   <form method="get" action="{{ url_for('options_dashboard') }}" class="option-filter-form">
+    <label>
+      Trade Group
+      <select name="trade_group_id" onchange="this.form.submit()">
+        {% for group in trade_groups %}
+          <option value="{{ group.id }}" {% if group.id == selected_trade_group_id %}selected{% endif %}>
+            {{ group.name }} ({{ group.code }}){% if group.group_type == 'PAPER' %} - Paper Trade{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
     <label>
       View
       <select name="strategy_type" onchange="this.form.submit()">
@@ -29,7 +52,7 @@
       </select>
     </label>
     {% if selected_strategy_type %}
-      <a class="button" href="{{ url_for('options_dashboard') }}">Clear</a>
+      <a class="button" href="{{ url_for('options_dashboard', trade_group_id=selected_trade_group_id) }}">Clear</a>
     {% endif %}
   </form>
 </section>
@@ -60,6 +83,16 @@
     <span>Strategy Return</span>
     <strong class="{{ pl_class(metrics.avg_return) }}">{{ pct(metrics.avg_return) }}</strong>
   </article>
+  <article>
+    <span>Longest Winning Streak</span>
+    <strong class="positive">{{ metrics.longest_winning_streak }}</strong>
+    <small>Consecutive closed bets</small>
+  </article>
+  <article>
+    <span>Longest Losing Streak</span>
+    <strong class="negative">{{ metrics.longest_losing_streak }}</strong>
+    <small>Consecutive closed bets</small>
+  </article>
 </section>
 
 <section class="management-panel option-growth-panel">
@@ -79,140 +112,13 @@
   </div>
 </section>
 
-<section class="management-panel">
-  <div class="panel-head">
-    <h2>{% if selected_strategy_type %}{{ selected_strategy_type }} What-if{% else %}What-if Summary{% endif %}</h2>
-    <p>Compares actual strategy P/L against long option-only legs and a &#8377;10L long stock position. Charges include approximate brokerage, STT, exchange charges, SEBI charges, stamp duty, GST, and DP charges where applicable.</p>
-  </div>
-  <div class="table-wrap">
-    <table class="management-table option-table option-whatif-table">
-      <thead>
-        <tr>
-          <th>Strategy Type</th>
-          <th class="number">Actual</th>
-          <th class="number">Long Call Only</th>
-          <th class="number">Long Put Only</th>
-          <th class="number">Long Stock &#8377;10L</th>
-          <th>Best</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in metrics.by_strategy %}
-          <tr data-whatif-row="{{ loop.index }}">
-            <td data-sort-value="{{ row.strategy_type|lower }}"><strong>{{ row.strategy_type }}</strong></td>
-            <td class="number {{ pl_class(row.actual_net) }}" data-sort-value="{{ row.actual_net if row.actual_net is not none else -999999999 }}">
-              <strong>{{ money(row.realized_pl) }}</strong>
-              <span class="whatif-cost">Charges {{ money(row.actual_brokerage) }}</span>
-              <span class="whatif-net">Net {{ money(row.actual_net) }}</span>
-            </td>
-            <td class="number {{ pl_class(row.long_call_pl) }}" data-sort-value="{{ row.long_call_pl if row.long_call_pl is not none else -999999999 }}">
-              {% if row.long_call_pl is not none %}
-                <button class="whatif-link {{ pl_class(row.long_call_pl) }}" type="button" data-toggle-simulation="call-{{ loop.index }}">{{ money(row.long_call_pl) }}</button>
-                <span class="whatif-cost">Charges {{ money(row.long_call_brokerage) }}</span>
-                <span class="whatif-net">Net {{ money(row.long_call_net) }}</span>
-              {% else %}
-                {{ money(row.long_call_pl) }}
-              {% endif %}
-            </td>
-            <td class="number {{ pl_class(row.long_put_pl) }}" data-sort-value="{{ row.long_put_pl if row.long_put_pl is not none else -999999999 }}">
-              <strong>{{ money(row.long_put_pl) }}</strong>
-              {% if row.long_put_pl is not none %}
-                <span class="whatif-cost">Charges {{ money(row.long_put_brokerage) }}</span>
-                <span class="whatif-net">Net {{ money(row.long_put_net) }}</span>
-              {% endif %}
-            </td>
-            <td class="number {{ pl_class(row.long_stock_pl) }}" data-sort-value="{{ row.long_stock_pl if row.long_stock_pl is not none else -999999999 }}">
-              {% if row.long_stock_pl is not none %}
-                <button class="whatif-link {{ pl_class(row.long_stock_pl) }}" type="button" data-toggle-simulation="stock-{{ loop.index }}">{{ money(row.long_stock_pl) }}</button>
-                <span class="whatif-cost">Charges {{ money(row.long_stock_brokerage) }}</span>
-                <span class="whatif-net">Net {{ money(row.long_stock_net) }}</span>
-              {% else %}
-                {{ money(row.long_stock_pl) }}
-              {% endif %}
-            </td>
-            <td data-sort-value="{{ row.best|lower }}">{{ row.best }}</td>
-          </tr>
-          <tr class="simulation-row is-hidden" data-simulation-row="call-{{ loop.index }}">
-            <td colspan="6">
-              <div class="simulation-detail">
-                <div class="simulation-head">
-                  <strong>{{ row.strategy_type }} · Long Call Only trades</strong>
-                  <span>{{ row.long_call_trades|length }} simulated trades</span>
-                </div>
-                <table class="simulation-table">
-                  <thead>
-                    <tr>
-                      <th>Bet</th>
-                      <th>Underlying</th>
-                      <th>Date</th>
-                      <th class="number">Simulated P/L</th>
-                      <th class="number">Charges</th>
-                      <th class="number">Net P/L</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for trade in row.long_call_trades %}
-                      <tr>
-                        <td>#{{ trade.bet_no }}</td>
-                        <td>{{ trade.underlying }}</td>
-                        <td>{{ trade.date }}</td>
-                        <td class="number {{ pl_class(trade.pl) }}">{{ money(trade.pl) }}</td>
-                        <td class="number">{{ money(trade.charges) }}</td>
-                        <td class="number {{ pl_class(trade.net) }}">{{ money(trade.net) }}</td>
-                      </tr>
-                    {% else %}
-                      <tr><td colspan="6" class="empty">No long call leg available for this strategy.</td></tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            </td>
-          </tr>
-          <tr class="simulation-row is-hidden" data-simulation-row="stock-{{ loop.index }}">
-            <td colspan="6">
-              <div class="simulation-detail">
-                <div class="simulation-head">
-                  <strong>{{ row.strategy_type }} · Long Stock &#8377;10L trades</strong>
-                  <span>{{ row.long_stock_trades|length }} simulated trades</span>
-                </div>
-                <table class="simulation-table">
-                  <thead>
-                    <tr>
-                      <th>Bet</th>
-                      <th>Underlying</th>
-                      <th>Date</th>
-                      <th class="number">Stock Move</th>
-                      <th class="number">Simulated P/L</th>
-                      <th class="number">Charges</th>
-                      <th class="number">Net P/L</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for trade in row.long_stock_trades %}
-                      <tr>
-                        <td>#{{ trade.bet_no }}</td>
-                        <td>{{ trade.underlying }}</td>
-                        <td>{{ trade.date }}</td>
-                        <td class="number {{ pl_class(trade.stock_move_pct) }}">{{ pct(trade.stock_move_pct) }}</td>
-                        <td class="number {{ pl_class(trade.pl) }}">{{ money(trade.pl) }}</td>
-                        <td class="number">{{ money(trade.charges) }}</td>
-                        <td class="number {{ pl_class(trade.net) }}">{{ money(trade.net) }}</td>
-                      </tr>
-                    {% else %}
-                      <tr><td colspan="7" class="empty">Stock movement is not available for these bets yet.</td></tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            </td>
-          </tr>
-        {% else %}
-          <tr>
-            <td colspan="6" class="empty">No what-if comparison yet.</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<section class="management-panel option-report-card">
+  <div class="panel-head stock-bets-head">
+    <div>
+      <h2>What-if Summary</h2>
+      <p>Moved to a dedicated report so this page stays focused on option bets and performance.</p>
+    </div>
+    <a class="button primary" href="{{ url_for('options_whatif_report', trade_group_id=selected_trade_group_id, strategy_type=selected_strategy_type) }}">Open What-if Report</a>
   </div>
 </section>
 
@@ -227,6 +133,7 @@
         <col class="bet-no-col">
         <col class="strategy-col">
         <col class="underlying-col">
+        <col class="pct-col">
         <col class="date-col">
         <col class="date-col">
         <col class="legs-col">
@@ -240,11 +147,12 @@
           <th data-sort="number">Bet No</th>
           <th data-sort="text">Strategy Type</th>
           <th data-sort="text">Underlying</th>
+          <th class="number" data-sort="number" title="Underlying stock price move from buy date to sell date; blank for an open trade.">Stock Move %</th>
           <th data-sort="text">Buy Date</th>
           <th data-sort="text">Sell Date</th>
           <th class="number" data-sort="number">Legs</th>
           <th class="number" data-sort="number">P/L</th>
-          <th class="number" data-sort="number">P/L %</th>
+          <th class="number" data-sort="number">Return on Risk</th>
           <th data-sort="text">Status</th>
           <th class="number">Actions</th>
         </tr>
@@ -254,13 +162,13 @@
           <tr data-option-row data-strategy-id="{{ row.id }}">
             <td data-sort-value="{{ row.bet_no or row.strategy_no }}">
               <button class="row-expander" type="button" data-expand-row="{{ row.id }}" aria-expanded="false" aria-label="Show option legs for bet {{ row.bet_no or row.strategy_no }}">+</button>
-              <span>{{ row.bet_no or row.strategy_no }}</span>
+              <span>{{ row.trade_group_code }}-{{ "%03d"|format(row.bet_no or row.strategy_no) }}</span>
             </td>
             <td data-sort-value="{{ row.strategy_type|lower }}">
               <strong>{{ row.strategy_type }}</strong>
-              {% if row.is_test_data %}<span class="subtle">Test data</span>{% endif %}
             </td>
             <td data-sort-value="{{ row.underlying|lower }}">{{ row.underlying }}</td>
+            <td class="number {{ pl_class(row.stock_move_pct) }}" data-sort-value="{{ row.stock_move_pct if row.stock_move_pct is not none else 0 }}">{{ pct(row.stock_move_pct) }}</td>
             <td data-sort-value="{{ row.buy_date or '' }}">{{ row.buy_date }}</td>
             <td data-sort-value="{{ row.sell_date or '' }}">{{ row.sell_date or "-" }}</td>
             <td class="number" data-sort-value="{{ row.leg_count }}">{{ row.leg_count }}</td>
@@ -274,7 +182,7 @@
               <a class="icon-button" href="{{ url_for('edit_option_strategy', strategy_id=row.id) }}" aria-label="Edit option bet {{ row.bet_no or row.strategy_no }}" title="Edit">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"></path></svg>
               </a>
-              {% if row.status != "Closed" or row.is_test_data %}
+              {% if row.status != "Closed" %}
                 <form method="post" action="{{ url_for('delete_option_strategy_route', strategy_id=row.id) }}" onsubmit="return confirm('Remove option bet {{ row.bet_no or row.strategy_no }}?');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="icon-button danger" type="submit" aria-label="Remove option bet {{ row.bet_no or row.strategy_no }}" title="Remove">
@@ -285,7 +193,7 @@
             </td>
           </tr>
           <tr class="option-leg-row" data-detail-for="{{ row.id }}" hidden>
-            <td colspan="10">
+            <td colspan="11">
               <div class="option-leg-detail">
                 <table class="leg-detail-table">
                   <tbody>

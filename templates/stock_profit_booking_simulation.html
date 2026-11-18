@@ -1,0 +1,557 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+body{overflow-x:hidden}
+.stock-booking-summary .table-wrap,.stock-booking-table-wrap,.scenario-analytics-table-wrap{overflow-x:clip!important;max-width:100%}
+.stock-booking-summary table,.stock-booking-table,.scenario-analytics-table{width:100%!important;max-width:100%;table-layout:fixed;white-space:normal!important}
+.stock-booking-summary th,.stock-booking-summary td,.stock-booking-table th,.stock-booking-table td,.scenario-analytics-table th,.scenario-analytics-table td{white-space:normal!important;overflow-wrap:anywhere;padding-left:6px!important;padding-right:6px!important}
+@media(max-width:760px){.stock-booking-summary th,.stock-booking-summary td,.stock-booking-table th,.stock-booking-table td,.scenario-analytics-table th,.scenario-analytics-table td{font-size:9px;padding:6px 3px!important}}
+</style>
+<section class="manage-hero simulation-hero">
+  <div>
+    <p class="eyebrow">Stock Bets Report</p>
+    <h1>Profit Booking Simulation</h1>
+    <p>Uses actual historical daily High prices to estimate what would have happened if stock bets were booked at different profit percentages from 6% to 26%.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button" href="{{ url_for('report_targets') }}">Live Report</a>
+    <a class="button" href="{{ url_for('new_position') }}">Manage Bets</a>
+  </div>
+</section>
+
+{% include '_stop_scenarios.html' %}
+<details class="comparison-panel"><summary>Explore profit-target booking · 6%–26%</summary>
+
+<section class="whatif-summary-panel stock-booking-summary">
+  <div class="panel-head">
+    <h2>Summary</h2>
+    <p>
+      {{ summary.bets }} stock bets analysed.
+      {% if summary.missing_history %}
+        <strong>{{ summary.missing_history }}</strong> bets could not fetch historical High data.
+      {% endif %}
+    </p>
+  </div>
+  {% if summary.best_target %}
+    <div class="stock-booking-best">
+      <div>
+        <span class="eyebrow">Recommended Profit Booking %</span>
+        <strong>{{ summary.best_target.label }}</strong>
+      </div>
+      <p>
+        {{ summary.best_target.label }} has the best balanced score:
+        <strong>{{ number(summary.analytics.best_score) }}</strong>.
+        It weighs booked profit, hit rate, average days to hit, and capital coverage.
+      </p>
+    </div>
+  {% endif %}
+  <div class="stock-booking-analytics">
+    <article>
+      <span>Decision Signal</span>
+      <strong>{{ summary.analytics.confidence }}</strong>
+      <small>{{ summary.analytics.sample_text }}</small>
+    </article>
+    <article>
+      <span>Highest Booked Profit</span>
+      <strong>{{ summary.analytics.highest_profit_label }}</strong>
+      <small>{{ money(summary.analytics.highest_profit) }}</small>
+    </article>
+    <article>
+      <span>Fastest Target</span>
+      <strong>{{ summary.analytics.fastest_label }}</strong>
+      <small>
+        {% if summary.analytics.fastest_days is not none %}
+          {{ number(summary.analytics.fastest_days) }} avg days
+        {% else %}
+          Not enough hit data
+        {% endif %}
+      </small>
+    </article>
+    <article>
+      <span>Highest Hit Rate</span>
+      <strong>{{ summary.analytics.best_by_hit_rate_label }}</strong>
+      <small>{{ pct(summary.analytics.best_by_hit_rate).replace("+", "") if summary.analytics.best_by_hit_rate is not none else "-" }}</small>
+    </article>
+    <article>
+      <span>Actual Open Expected P/L</span>
+      <strong class="{{ pl_class(summary.open_target_expected_pl) }}">{{ money(summary.open_target_expected_pl) }}</strong>
+      <small>{{ summary.open_target_expected_count }} open bets using entered target price</small>
+    </article>
+    <article>
+      <span>Early Exits</span>
+      <strong>{{ summary.early_exit_count }}</strong>
+      <small>
+        {% if summary.early_exit_target_hit_rate is not none %}
+          {{ pct(summary.early_exit_target_hit_rate).replace("+", "") }} later hit target
+        {% else %}
+          Closed below original target
+        {% endif %}
+      </small>
+    </article>
+    <article>
+      <span>Missed Target P/L</span>
+      <strong class="{{ pl_class(summary.early_exit_missed_pl) }}">{{ money(summary.early_exit_missed_pl) }}</strong>
+      <small>Only early exits that later touched target</small>
+    </article>
+  </div>
+  <div class="stock-booking-visuals">
+    <div class="stock-booking-ranking">
+      <div class="scenario-ranking-head">
+        <h3>Scenario Ranking</h3>
+        <span>{{ summary.analytics.score_formula }}</span>
+      </div>
+      <div class="scenario-ranking-table">
+        <div class="scenario-ranking-row scenario-ranking-header">
+          <span>Rank</span>
+          <span>Book %</span>
+          <span>Score</span>
+          <span>Booked Profit</span>
+          <span>Open Expected</span>
+          <span>Hits</span>
+          <span>Avg Days</span>
+          <span>Capital Hit</span>
+          <span>Read</span>
+        </div>
+        {% for item in summary.scenario_rankings %}
+          <div class="scenario-ranking-row {% if item.is_best %}is-best{% endif %}">
+            <span class="rank-pill">#{{ item.rank }}</span>
+            <strong>{{ item.label }}</strong>
+            <span>{{ number(item.decision_score) }}</span>
+            <span class="{{ pl_class(item.booked_profit) }}">{{ money(item.booked_profit) }}</span>
+            <span class="{{ pl_class(item.open_expected_pl) }}">{{ money(item.open_expected_pl) }}</span>
+            <span>{{ item.hits }} / {{ summary.bets }} <small>{{ pct(item.hit_rate).replace("+", "") if item.hit_rate is not none else "-" }}</small></span>
+            <span>{{ number(item.avg_days_to_hit) if item.avg_days_to_hit is not none else "-" }}</span>
+            <span>{{ pct(item.capital_hit_rate).replace("+", "") if item.capital_hit_rate is not none else "-" }}</span>
+            <span>{{ item.note }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="stock-booking-takeaways">
+      <h3>Smart Read</h3>
+      {% for takeaway in summary.analytics.takeaways %}
+        <p>{{ takeaway }}</p>
+      {% endfor %}
+      {% if summary.analytics.best_gap is not none and summary.analytics.best_gap_label %}
+        <p>
+          Score gap to next best:
+          <strong>{{ number(summary.analytics.best_gap) }}</strong>
+          over {{ summary.analytics.best_gap_label }}.
+        </p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="scenario-analytics-wrap">
+    <div class="scenario-simple-note">
+      <strong>How to read this:</strong>
+      <span>Open Expected P/L uses entered target price for Actual realized, and the scenario percentage for simulated booking rows. Cash Freed is money that would have come back when a scenario target was booked.</span>
+    </div>
+    <div class="table-wrap scenario-analytics-table-wrap">
+    <table class="management-table scenario-analytics-table management-sortable-table">
+      <thead>
+        <tr>
+          <th data-sort="text">Scenario</th>
+          <th class="number" data-sort="number">Booked P/L</th>
+          <th class="number" data-sort="number">Open Expected P/L</th>
+          <th class="number" data-sort="number">Vs Actual</th>
+          <th class="number" data-sort="number">Hit Rate</th>
+          <th class="number" data-sort="number">Avg Days</th>
+          <th class="number" data-sort="number">Cash Freed</th>
+          <th class="number" data-sort="number">Days Cash Was Free</th>
+          <th data-sort="number">Score</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td data-sort-value="actual">
+            <strong>Actual realized</strong>
+            <span class="subtle">{{ summary.realized_count }} closed bets</span>
+          </td>
+          <td class="number {{ pl_class(summary.realized_pl) }}" data-sort-value="{{ summary.realized_pl }}">
+            <strong>{{ money(summary.realized_pl) }}</strong>
+            <span class="subtle">Actual realized</span>
+          </td>
+          <td class="number {{ pl_class(summary.open_target_expected_pl) }}" data-sort-value="{{ summary.open_target_expected_pl }}">
+            <strong>{{ money(summary.open_target_expected_pl) }}</strong>
+            <span class="subtle">{{ summary.open_target_expected_count }} open targets</span>
+          </td>
+          <td class="number neutral" data-sort-value="0">{{ money(0) }}</td>
+          <td class="number scenario-hit-rate" data-sort-value="{{ summary.actual_win_rate if summary.actual_win_rate is not none else -1 }}">
+            <strong>{{ pct(summary.actual_win_rate).replace("+", "") if summary.actual_win_rate is not none else "-" }}</strong>
+            <span class="subtle">{{ summary.winning_realized_count }} / {{ summary.bets }}</span>
+          </td>
+          <td class="number" data-sort-value="{{ summary.actual_avg_winning_hold_days if summary.actual_avg_winning_hold_days is not none else -1 }}">{{ number(summary.actual_avg_winning_hold_days) if summary.actual_avg_winning_hold_days is not none else "-" }}</td>
+          <td class="number" data-sort-value="{{ summary.realized_capital }}">{{ money(summary.realized_capital) }}</td>
+          <td class="number neutral" data-sort-value="-1">-</td>
+          <td data-sort-value="-1"><span class="status closed">Baseline</span></td>
+        </tr>
+        {% for item in summary.scenario_rankings %}
+          <tr class="{% if item.is_best %}is-best{% endif %}">
+            <td data-sort-value="{{ item.label }}">
+              <strong>{{ item.label }} booking</strong>
+              <span class="subtle">{{ item.note }}</span>
+            </td>
+            <td class="number {{ pl_class(item.booked_profit) }}" data-sort-value="{{ item.booked_profit }}"><strong>{{ money(item.booked_profit) }}</strong></td>
+            <td class="number {{ pl_class(item.open_expected_pl) }}" data-sort-value="{{ item.open_expected_pl }}">
+              <strong>{{ money(item.open_expected_pl) }}</strong>
+              <span class="subtle">{{ item.label }} on {{ item.open_expected_count }} open bets</span>
+            </td>
+            <td class="number {{ pl_class(item.booked_profit - summary.realized_pl) }}" data-sort-value="{{ item.booked_profit - summary.realized_pl }}">{{ money(item.booked_profit - summary.realized_pl) }}</td>
+            <td class="number scenario-hit-rate" data-sort-value="{{ item.hit_rate if item.hit_rate is not none else -1 }}">
+              <strong>{{ pct(item.hit_rate).replace("+", "") if item.hit_rate is not none else "-" }}</strong>
+              <span class="subtle">{{ item.hits }} / {{ summary.bets }}</span>
+            </td>
+            <td class="number" data-sort-value="{{ item.avg_days_to_hit if item.avg_days_to_hit is not none else -1 }}">{{ number(item.avg_days_to_hit) if item.avg_days_to_hit is not none else "-" }}</td>
+            <td class="number" data-sort-value="{{ item.capital_released }}">{{ money(item.capital_released) }}</td>
+            <td
+              class="number"
+              data-sort-value="{{ item.avg_redeploy_days if item.avg_redeploy_days is not none else -1 }}"
+              title="{% if item.avg_redeploy_days is not none %}On average, cash from this scenario was available for {{ number(item.avg_redeploy_days) }} days after booking profit.{% endif %}"
+            >
+              {{ number(item.avg_redeploy_days) if item.avg_redeploy_days is not none else "-" }}
+              <span class="subtle">{% if item.avg_redeploy_days is not none %}avg days{% endif %}</span>
+            </td>
+            <td data-sort-value="{{ item.decision_score }}"><span class="status {% if item.is_best %}success{% endif %}">{{ number(item.decision_score) }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<section class="management-panel early-exit-panel">
+  <div class="panel-head">
+    <div>
+      <h2>Early Exit Follow-through</h2>
+      <p>Closed bets where you exited before the original target. This checks whether the target was later reached and what waiting would have changed.</p>
+    </div>
+  </div>
+  <div class="early-exit-summary">
+    <article>
+      <span>Exited Before Target</span>
+      <strong>{{ summary.early_exit_count }}</strong>
+    </article>
+    <article>
+      <span>Later Hit Target</span>
+      <strong>{{ summary.early_exit_target_hits }}</strong>
+      <small>{{ pct(summary.early_exit_target_hit_rate).replace("+", "") if summary.early_exit_target_hit_rate is not none else "-" }}</small>
+    </article>
+    <article>
+      <span>Avg Extra Wait</span>
+      <strong>{{ number(summary.early_exit_avg_days_after_sell) if summary.early_exit_avg_days_after_sell is not none else "-" }}</strong>
+      <small>days after sell</small>
+    </article>
+    <article>
+      <span>Capital Released</span>
+      <strong>{{ money(summary.early_exit_released_capital) }}</strong>
+      <small>available for redeployment</small>
+    </article>
+    <article>
+      <span>Extra P/L If Waited</span>
+      <strong class="{{ pl_class(summary.early_exit_missed_pl) }}">{{ money(summary.early_exit_missed_pl) }}</strong>
+      <small>target-hit exits only</small>
+    </article>
+    <article>
+      <span>Missed / ₹1L Released</span>
+      <strong class="{{ pl_class(summary.early_exit_missed_pl_per_lakh_released) }}">{{ money(summary.early_exit_missed_pl_per_lakh_released) }}</strong>
+      <small>{{ pct(summary.early_exit_missed_return_on_released_pct).replace("+", "") if summary.early_exit_missed_return_on_released_pct is not none else "-" }} return on released capital</small>
+    </article>
+  </div>
+  <div class="table-wrap">
+    <table class="management-table early-exit-table management-sortable-table" data-page-size="10">
+      <thead>
+        <tr>
+          <th data-sort="number">Bet</th>
+          <th data-sort="text">Ticker</th>
+          <th data-sort="text">Sold</th>
+          <th class="number" data-sort="number">Sell</th>
+          <th class="number" data-sort="number">Target</th>
+          <th class="number" data-sort="number">Released</th>
+          <th class="number" data-sort="number">Actual P/L</th>
+          <th class="number" data-sort="number">Target P/L</th>
+          <th class="number" data-sort="number">Extra P/L</th>
+          <th data-sort="number">Target Follow-through</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in summary.early_exit_rows %}
+          <tr>
+            <td data-sort-value="{{ item.bet_no or 0 }}">{{ item.bet_no or "-" }}</td>
+            <td data-sort-value="{{ item.ticker|lower }}"><strong>{{ item.ticker }}</strong></td>
+            <td data-sort-value="{{ item.sell_date.isoformat() }}">{{ item.sell_date.strftime("%d/%m/%Y") }}</td>
+            <td class="number" data-sort-value="{{ item.sell_price }}">{{ money(item.sell_price) }}</td>
+            <td class="number" data-sort-value="{{ item.target_price }}">{{ money(item.target_price) }}</td>
+            <td class="number" data-sort-value="{{ item.released_capital }}">{{ money(item.released_capital) }}</td>
+            <td class="number {{ pl_class(item.actual_pl) }}" data-sort-value="{{ item.actual_pl if item.actual_pl is not none else -999999999 }}">{{ money(item.actual_pl) }}</td>
+            <td class="number {{ pl_class(item.target_pl) }}" data-sort-value="{{ item.target_pl }}">{{ money(item.target_pl) }}</td>
+            <td class="number {{ pl_class(item.missed_pl) }}" data-sort-value="{{ item.missed_pl }}">{{ money(item.missed_pl) }}</td>
+            <td data-sort-value="{{ item.days_after_sell if item.days_after_sell is not none else 999999 }}">
+              {% if item.target_hit_after_sell %}
+                <span class="status success">Hit after {{ item.days_after_sell }} days</span>
+                <small>{{ item.target_hit_date.strftime("%d/%m/%Y") }} · High {{ money(item.highest_after_sell) }}</small>
+              {% elif item.history_error %}
+                <span class="status danger">No history</span>
+              {% else %}
+                <span class="status">Not hit yet</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="10" class="empty">No closed-under-target deviations found yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-pagination" data-management-pagination></div>
+</section>
+
+<section class="management-panel stock-booking-snapshots">
+  <div class="panel-head">
+    <div>
+      <h2>Snapshot History</h2>
+      <p>One snapshot is stored per day, so the one-year experiment can be reviewed even if future data changes.</p>
+    </div>
+  </div>
+  {% if recommendation_stability.total %}
+    <div class="booking-recommendation-stability">
+      <div>
+        <span>Recommendation Stability</span>
+        <strong>{{ recommendation_stability.leading.label }} is recommended in {{ recommendation_stability.leading.count }} of {{ recommendation_stability.total }} snapshots</strong>
+        <small>Based on the displayed Snapshot History. This shows how consistently the simulation selected each profit-booking target.</small>
+      </div>
+      <div class="booking-recommendation-counts" aria-label="Target recommendation counts">
+        {% for target in recommendation_stability.targets %}
+          <span class="{% if loop.first %}is-leading{% endif %}"><b>{{ target.label }}</b> {{ target.count }} snapshot{{ "s" if target.count != 1 else "" }}</span>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+  <div class="table-wrap">
+    <table class="management-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th class="number">Bets</th>
+          <th class="number">Actual P/L</th>
+          <th class="number">Actual Hit Rate</th>
+          <th>Recommended</th>
+          <th class="number">Score</th>
+          <th>Confidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for snapshot in snapshots %}
+          <tr>
+            <td>{{ snapshot.snapshot_date }}</td>
+            <td class="number">{{ snapshot.total_bets }}</td>
+            <td class="number {{ pl_class(snapshot.realized_profit) }}">{{ money(snapshot.realized_profit) }}</td>
+            <td class="number">{{ pct(snapshot.actual_win_rate).replace("+", "") if snapshot.actual_win_rate is not none else "-" }}</td>
+            <td><strong>{{ snapshot.recommended_rate or "-" }}</strong></td>
+            <td class="number">{{ number(snapshot.recommended_score) if snapshot.recommended_score is not none else "-" }}</td>
+            <td>{{ snapshot.confidence or "-" }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="7" class="empty">No simulation snapshots recorded yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="management-panel stock-booking-detail-panel">
+  <div class="panel-head stock-booking-detail-head">
+    <div>
+      <h2>Bet Level Simulation</h2>
+      <p>Each profit percentage is one compact column. Hover a result to see target price, hit date, high price, booked P/L, and difference vs current.</p>
+    </div>
+    <form class="stock-booking-filters" data-stock-booking-filters>
+      <label>
+        <span>Show</span>
+        <select name="result">
+          <option value="all">All bets</option>
+          <option value="any-hit">Any target hit</option>
+          <option value="no-hit">No target hit</option>
+          <option value="no-history">No history</option>
+        </select>
+      </label>
+      <label>
+        <span>Ticker</span>
+        <input name="ticker" type="search" placeholder="Search ticker">
+      </label>
+    </form>
+  </div>
+  <div class="table-wrap stock-booking-table-wrap">
+    <table class="management-table stock-booking-table" data-page-size="15">
+      <thead>
+        <tr>
+          <th data-sort="number">Bet</th>
+          <th data-sort="text">Ticker</th>
+          <th data-sort="text">Buy Date</th>
+          <th class="number" data-sort="number">Capital</th>
+          <th data-sort="number">Scenario Results</th>
+          <th class="number" data-sort="number">Current</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          {% set any_hit = namespace(value=false) %}
+          {% for rate in target_rates %}
+            {% if row.targets[rate].hit %}
+              {% set any_hit.value = true %}
+            {% endif %}
+          {% endfor %}
+          <tr
+            data-ticker="{{ row.ticker|lower }}"
+            data-result="{% if row.history_error %}no-history{% elif any_hit.value %}any-hit{% else %}no-hit{% endif %}"
+          >
+            <td data-sort-value="{{ row.bet_no or 0 }}">{{ row.bet_no or "-" }}</td>
+            <td data-sort-value="{{ row.ticker|lower }}">
+              <strong>{{ row.ticker }}</strong>
+              <span class="subtle">{{ row.status }}</span>
+            </td>
+            <td data-sort-value="{{ row.buy_date.isoformat() }}">{{ row.buy_date.strftime("%d/%m/%Y") }}</td>
+            <td class="number" data-sort-value="{{ row.capital }}">{{ money(row.capital) }}</td>
+            {% set best_hit = namespace(value=-999999999) %}
+            {% for rate in target_rates %}
+              {% set item = row.targets[rate] %}
+              {% if item.hit and item.booked_profit > best_hit.value %}
+                {% set best_hit.value = item.booked_profit %}
+              {% endif %}
+            {% endfor %}
+            <td class="stock-booking-scenario-cell" data-sort-value="{{ best_hit.value }}">
+              {% for rate in target_rates %}
+                {% set item = row.targets[rate] %}
+                <span
+                  class="scenario-chip {% if item.hit %}hit{% elif row.history_error %}missing{% else %}miss{% endif %}"
+                  title="{% if item.hit %}{{ item.label }} hit on {{ item.hit_date.strftime('%d/%m/%Y') }}. Released {{ money(item.released_capital) }}. Redeploy days {{ item.redeploy_days }}. Target {{ money(item.target_price) }}. Expected P/L {{ money(item.total_with_unhit_mtm) }}. Booked-only {{ money(item.booked_profit) }}.{% elif row.history_error %}Historical high data was not available for this bet.{% else %}{{ item.label }} not hit. Target {{ money(item.target_price) }}. Expected P/L {{ money(item.total_with_unhit_mtm) }} from existing result/MTM.{% endif %}"
+                >
+                  <strong>{{ item.label }}</strong>
+                  {% if item.hit %}
+                    {{ money(item.booked_profit) }}
+                  {% elif row.history_error %}
+                    No history
+                  {% else %}
+                    Not hit
+                  {% endif %}
+                </span>
+              {% endfor %}
+            </td>
+            <td
+              class="number {{ pl_class(row.actual_pl) }}"
+              data-sort-value="{{ row.actual_pl if row.actual_pl is not none else -999999999 }}"
+              title="{{ row.actual_basis }}"
+            >
+              {{ money(row.actual_pl) }}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="6" class="empty">No stock bets available for simulation.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-pagination" data-stock-booking-pagination></div>
+</section>
+
+</details>
+<script>
+(() => {
+  const table = document.querySelector(".stock-booking-table");
+  const pager = document.querySelector("[data-stock-booking-pagination]");
+  const filters = document.querySelector("[data-stock-booking-filters]");
+  if (!table || !pager) return;
+
+  const tbody = table.querySelector("tbody");
+  const allRows = Array.from(tbody.querySelectorAll("tr"));
+  let rows = [...allRows];
+  const pageSize = Number(table.dataset.pageSize || 15);
+  let page = 1;
+
+  const valueAt = (row, index, type) => {
+    const cell = row.children[index];
+    const raw = cell ? (cell.dataset.sortValue ?? cell.textContent) : "";
+    if (type === "number") {
+      const value = Number(String(raw).replace(/[^0-9.-]/g, ""));
+      return Number.isFinite(value) ? value : -999999999;
+    }
+    return String(raw).trim().toLowerCase();
+  };
+
+  const applyFilters = () => {
+    if (!filters) {
+      rows = [...allRows];
+      return;
+    }
+    const form = new FormData(filters);
+    const result = String(form.get("result") || "all");
+    const ticker = String(form.get("ticker") || "").trim().toLowerCase();
+    rows = allRows.filter((row) => {
+      const resultOk = result === "all" || row.dataset.result === result;
+      const tickerOk = !ticker || (row.dataset.ticker || "").includes(ticker);
+      return resultOk && tickerOk;
+    });
+  };
+
+  const render = () => {
+    const totalPages = Math.max(Math.ceil(rows.length / pageSize), 1);
+    page = Math.min(Math.max(page, 1), totalPages);
+    const start = (page - 1) * pageSize;
+    tbody.innerHTML = "";
+    rows.slice(start, start + pageSize).forEach((row) => tbody.appendChild(row));
+    pager.innerHTML = `
+      <span>Page ${page} of ${totalPages} - ${rows.length} bets</span>
+      <button class="button" type="button" data-page="prev" ${page === 1 ? "disabled" : ""}>Prev</button>
+      <button class="button" type="button" data-page="next" ${page === totalPages ? "disabled" : ""}>Next</button>
+    `;
+  };
+
+  table.querySelectorAll("th[data-sort]").forEach((header, columnIndex) => {
+    header.addEventListener("click", () => {
+      const direction = header.classList.contains("sorted-asc") ? "desc" : "asc";
+      table.querySelectorAll("th[data-sort]").forEach((item) => item.classList.remove("sorted-asc", "sorted-desc"));
+      header.classList.add(direction === "asc" ? "sorted-asc" : "sorted-desc");
+      rows.sort((a, b) => {
+        const left = valueAt(a, columnIndex, header.dataset.sort);
+        const right = valueAt(b, columnIndex, header.dataset.sort);
+        if (left < right) return direction === "asc" ? -1 : 1;
+        if (left > right) return direction === "asc" ? 1 : -1;
+        return 0;
+      });
+      page = 1;
+      render();
+    });
+  });
+
+  if (filters) {
+    filters.addEventListener("input", () => {
+      applyFilters();
+      page = 1;
+      render();
+    });
+    filters.addEventListener("change", () => {
+      applyFilters();
+      page = 1;
+      render();
+    });
+  }
+
+  pager.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-page]");
+    if (!button) return;
+    page += button.dataset.page === "next" ? 1 : -1;
+    render();
+  });
+
+  applyFilters();
+  render();
+})();
+</script>
+{% endblock %}

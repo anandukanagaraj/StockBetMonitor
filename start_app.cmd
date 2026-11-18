@@ -18,6 +18,14 @@ if not exist "%PYTHON_EXE%" (
 )
 
 cd /d "%PROJECT_ROOT%"
+echo Checking for an existing My Portfolio Bets V3 web app...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$project = '%PROJECT_ROOT%'.TrimEnd('\'); $matches = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -and $_.CommandLine -match 'app\.py' -and $_.CommandLine.IndexOf($project, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 }); foreach ($process in $matches) { Stop-Process -Id $process.ProcessId -Force }; if ($matches.Count -gt 0) { Start-Sleep -Milliseconds 500 }"
+if errorlevel 1 (
+  echo Could not check or stop the existing web app.
+  pause
+  exit /b 1
+)
+
 echo Starting My Portfolio Bets V3 web app...
 echo URL: http://127.0.0.1:5002/
 echo.

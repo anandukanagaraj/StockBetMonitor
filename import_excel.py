@@ -5,7 +5,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from db import connect, init_db, now_iso
+from db import connect, default_stock_group_id, init_db, now_iso
 from services.date_utils import normalized_buy_date_map, position_identity
 
 
@@ -111,6 +111,7 @@ def import_positions(positions):
     skipped = 0
 
     with connect() as connection:
+        trade_group_id = default_stock_group_id(connection)
         for row in positions:
             if not row["ticker"] or not row["buy_date"] or row["qty"] is None or row["buy_price"] is None:
                 skipped += 1
@@ -120,11 +121,11 @@ def import_positions(positions):
                 connection.execute(
                     """
                     INSERT INTO positions (
-                        bet_no, ticker, buy_date, qty, buy_price, target_price, stop_loss,
+                        bet_no, trade_group_id, ticker, buy_date, qty, buy_price, target_price, stop_loss,
                         current_price, sell_date, sell_price, status, notes, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(bet_no) DO UPDATE SET
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(trade_group_id, bet_no) DO UPDATE SET
                         ticker = excluded.ticker,
                         buy_date = excluded.buy_date,
                         qty = excluded.qty,
@@ -140,6 +141,7 @@ def import_positions(positions):
                     """,
                     (
                         row["bet_no"],
+                        trade_group_id,
                         row["ticker"],
                         row["buy_date"],
                         row["qty"],

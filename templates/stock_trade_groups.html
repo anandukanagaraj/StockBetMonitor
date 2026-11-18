@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="manage-hero">
+  <div>
+    <p class="eyebrow">Stock Setup</p>
+    <h1>Manage Stock Trade Groups</h1>
+    <p>Create stock playbooks such as Swing, BTST, Day Trading, Long Term, or Dividend. Swing remains the default for the existing stock reports.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button" href="{{ url_for('new_position') }}">Add / Manage Bets</a>
+    <a class="button" href="{{ url_for('report_masked') }}">Swing Report</a>
+  </div>
+</section>
+
+<section class="form-shell trade-group-shell">
+  <form class="position-form trade-group-form" method="post" action="{{ url_for('edit_stock_trade_group', group_id=editing_group.id) if editing_group else url_for('manage_stock_trade_groups') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>
+      Group Name
+      <input name="name" required maxlength="60" placeholder="BTST" value="{{ editing_group.name if editing_group else '' }}">
+    </label>
+    <label>
+      Short Code
+      <input name="code" required maxlength="12" placeholder="BTST" value="{{ editing_group.code if editing_group else '' }}">
+    </label>
+    <label>
+      Display Order
+      <input name="display_order" type="number" value="{{ editing_group.display_order if editing_group else 0 }}">
+    </label>
+    <label class="check-row">
+      <input name="is_paper_trade" type="checkbox" {% if editing_group and (editing_group.group_type or 'LIVE') == 'PAPER' %}checked{% endif %}>
+      <span>Paper Trade group</span>
+    </label>
+    <label class="full">
+      Description
+      <textarea name="description" rows="2" placeholder="Short note about how this stock group is used">{{ editing_group.description if editing_group and editing_group.description else '' }}</textarea>
+    </label>
+    <div class="form-actions full">
+      {% if editing_group %}<a class="button" href="{{ url_for('manage_stock_trade_groups') }}">Cancel</a>{% endif %}
+      <button class="button primary" type="submit">{{ 'Update Stock Group' if editing_group else 'Create Stock Group' }}</button>
+    </div>
+  </form>
+</section>
+
+<section class="management-panel">
+  <div class="panel-head">
+    <h2>Stock Trade Groups</h2>
+    <p>Live groups can hold real stock bets. Paper Trade groups are for testing and are excluded from stock reports.</p>
+  </div>
+  <div class="table-wrap">
+    <table class="management-table trade-group-table">
+      <thead>
+        <tr>
+          <th>Order</th>
+          <th>Group</th>
+          <th>Code</th>
+          <th>Description</th>
+          <th class="number">Bets</th>
+          <th>Mode</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for group in trade_groups %}
+          <tr>
+            <td>{{ group.display_order }}</td>
+            <td><strong>{{ group.name }}</strong></td>
+            <td><span class="group-code">{{ group.code }}</span></td>
+            <td>{{ group.description or '-' }}</td>
+            <td class="number">{{ group.bet_count }}</td>
+            <td>
+              <span class="status {{ 'warning' if group.group_type == 'PAPER' else '' }}">
+                {{ 'Paper Trade' if group.group_type == 'PAPER' else 'Live' }}
+              </span>
+            </td>
+            <td><span class="status {{ 'closed' if not group.is_active else '' }}">{{ 'Active' if group.is_active else 'Archived' }}</span></td>
+            <td class="actions">
+              <a class="button" href="{{ url_for('edit_stock_trade_group', group_id=group.id) }}">Edit</a>
+              {% if group.group_type == 'PAPER' %}
+                <form method="post" action="{{ url_for('delete_paper_stock_trade_group_route', group_id=group.id) }}" onsubmit="return confirm('Permanently delete {{ group.name|e }} and all {{ group.bet_count }} paper-trade bets? This cannot be undone.');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="button danger" type="submit">Delete</button>
+                </form>
+              {% else %}
+                <form method="post" action="{{ url_for('toggle_stock_trade_group', group_id=group.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="button {{ 'danger' if group.is_active else '' }}" type="submit">{{ 'Archive' if group.is_active else 'Restore' }}</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td class="empty" colspan="8">No stock groups yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="manage-hero fund-hero"><div><p class="eyebrow">Fund Management</p><h1>Edit Fund</h1><p>Update the fund identity and the stock portfolio assigned to it.</p></div><div class="hero-actions"><a class="button" href="{{ url_for('fund_management.manage_funds') }}">Cancel</a><a class="button" href="{{ url_for('fund_management.fund_dashboard', fund_id=fund.id) }}">Fund Details</a></div></section>
+<section class="form-shell">
+  <form class="position-form" method="post" action="{{ url_for('fund_management.edit_fund', fund_id=fund.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Fund name<input name="name" required maxlength="100" value="{{ fund.name }}"></label>
+    <label>Opening/reference NAV<input name="opening_nav" type="number" min="0.01" step="0.01" value="{{ fund.opening_nav }}" required></label>
+    <label>Stock portfolio assignment<select name="stock_scope"><option value="ALL" {{ 'selected' if fund.stock_scope == 'ALL' else '' }}>All Stock Groups</option>{% for group in stock_groups %}<option value="{{ group.code }}" {{ 'selected' if fund.stock_scope == group.code else '' }}>{{ group.name }} ({{ group.code }})</option>{% endfor %}</select></label>
+    <label class="check-row"><input name="is_test_data" type="checkbox" {{ 'checked' if fund.is_test_data else '' }}><span>Test fund — safe to delete with all fund records</span></label>
+    <div class="full alert warning">Changing the assigned stock scope rebuilds the fund's stock baseline from the currently open bets in the new scope. Existing investor units and transactions are preserved.</div>
+    <div class="form-actions full"><a class="button" href="{{ url_for('fund_management.manage_funds') }}">Cancel</a><button class="button primary" type="submit">Save Fund</button></div>
+  </form>
+</section>
+{% endblock %}

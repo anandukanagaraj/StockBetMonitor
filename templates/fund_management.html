@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="manage-hero fund-hero">
+  <div><p class="eyebrow">Fund Management · {{ 'All Stock Groups' if fund.fund.stock_scope == 'ALL' else fund.fund.stock_scope }}</p><h1>{{ fund.settings.fund_name }}</h1><p>Unit-based investor accounting, subscriptions, redemptions, NAV and liquidity for the assigned stock portfolio.</p></div>
+  <div class="hero-actions"><a class="button" href="{{ url_for('fund_management.manage_funds') }}">Manage Funds</a><div class="fund-nav-display"><span>Current NAV</span><strong>{{ money(fund.nav) }}</strong><small>{{ number(fund.total_units) }} total units · {{ fund.fund.stock_scope }}</small></div></div>
+</section>
+
+<section class="dashboard-summary fund-summary">
+  <article class="summary-card primary-summary"><span>Fund AUM</span><strong>{{ money(fund.aum) }}</strong><small>Stocks {{ money(fund.assets.market_value) }} + cash {{ money(fund.cash) }}</small></article>
+  <article class="summary-card"><span>SWING stock value</span><strong>{{ money(fund.assets.market_value) }}</strong><small>{{ fund.assets.open_bets }} open bets · cost {{ money(fund.assets.cost_value) }}</small></article>
+  <article class="summary-card"><span>Fund cash</span><strong class="{{ 'negative' if fund.cash < 0 else '' }}">{{ money(fund.cash) }}</strong><small>Automatically: funding + stock sales − stock buys − redemptions</small></article>
+  <article class="summary-card"><span>Ownership allocated</span><strong>{{ '%.2f'|format(fund.allocated_pct) }}%</strong><small>{{ number(fund.unallocated_units) }} units remain sponsor/unassigned</small></article>
+</section>
+
+<section class="management-panel fund-growth-panel" data-fund-growth-url="{{ url_for('fund_management.fund_growth_data', fund_id=fund.fund.id) }}">
+  <div class="panel-head"><div><p class="eyebrow">Performance comparison</p><h2>NAV Growth vs NIFTY 50</h2><p>Both series are normalized to 100 at their first recorded observation.</p></div><div class="fund-growth-returns"><span>Fund <strong data-fund-return>-</strong></span><span>NIFTY 50 <strong data-nifty-return>-</strong></span></div></div>
+  <div class="fund-growth-chart"><canvas width="1100" height="340" aria-label="Fund NAV growth compared with NIFTY 50"></canvas><div class="chart-empty" data-growth-empty>Loading growth history…</div><div class="option-chart-tooltip portfolio-chart-tooltip" data-growth-tooltip></div></div>
+  <div class="option-chart-legend portfolio-chart-legend"><span><i class="line-dot"></i> {{ fund.fund.name }} NAV</span><span><i class="fund-nifty-dot"></i> NIFTY 50</span><span>Daily fund snapshots begin when fund tracking is enabled.</span></div>
+</section>
+
+{% if fund.liquidity_shortfall %}<div class="alert error">Redemptions/outflows exceed recorded fund cash by {{ money(fund.liquidity_shortfall) }}. Sell assets or record a cash inflow to cover the shortfall.</div>{% endif %}
+
+<section class="fund-form-grid">
+  <form class="management-panel fund-form" method="post" action="{{ url_for('fund_management.add_investor', fund_id=fund.fund.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="panel-head"><div><p class="eyebrow">Investors</p><h2>Add Investor Funding</h2><p>The fund owner holds the opening units. Additional investors enter only by contributing fresh funding at NAV.</p></div><a class="button" href="{{ url_for('fund_management.manage_investors') }}">New Investor</a></div>
+    <label class="full">Investor<select name="profile_id" required>{% for profile in investor_profiles %}<option value="{{ profile.id }}">{{ profile.name }} · {{ 'assigned, %.2f%%'|format(profile.ownership_pct) if profile.is_assigned else 'not assigned' }}</option>{% else %}<option value="">No investors available</option>{% endfor %}</select></label>
+    <label>Fresh funding amount<input name="funding_amount" type="number" min="0.01" step="0.01" required></label>
+    <label>Current NAV<input name="assigned_nav" type="number" value="{{ '%.4f'|format(fund.nav) }}" readonly aria-readonly="true"></label>
+    <label>Effective date<input name="transaction_date" type="date" value="{{ today }}"></label>
+    <div class="full fund-entry-explainer"><strong>Units issued = funding amount ÷ assigned NAV.</strong> Existing investors keep their units and their ownership percentages dilute proportionally.</div>
+    <button class="button primary full" type="submit" {{ 'disabled' if not investor_profiles else '' }}>Record Funding &amp; Add Investor</button>
+  </form>
+
+  <form class="management-panel fund-form" method="post" action="{{ url_for('fund_management.add_transaction', fund_id=fund.fund.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="panel-head"><div><p class="eyebrow">Unit ledger</p><h2>Investor Redemption</h2><p>Cancel investor units and record the redemption payout at the assigned NAV.</p></div></div>
+    <label>Investor<select name="investor_id" required>{% for row in fund.investors if row.is_active %}<option value="{{ row.id }}">{{ row.name }} · {{ number(row.units) }} units</option>{% endfor %}</select></label>
+    <label>Amount<input name="amount" type="number" min="0.01" step="0.01" placeholder="Use amount or units"></label><label>Units<input name="units" type="number" min="0.000001" step="0.000001" placeholder="Optional"></label>
+    <label>Current NAV<input name="nav" type="number" value="{{ '%.4f'|format(fund.nav) }}" readonly aria-readonly="true"></label><label>Date<input name="transaction_date" type="date" value="{{ today }}"></label>
+    <label class="full">Notes<textarea name="notes" rows="2"></textarea></label><button class="button primary full" type="submit">Record Redemption</button>
+  </form>
+
+  <div class="management-panel fund-side-forms">
+    <div class="fund-auto-cash"><div class="panel-head"><div><p class="eyebrow">Automatic liquidity</p><h2>Portfolio Cash Reconciliation</h2><p>No manual cash entry is required.</p></div></div>
+      <div class="fund-auto-cash-grid"><article><span>New stock purchases</span><strong>{{ money(fund.stock_cash_flows.purchases) }}</strong><small>{{ fund.stock_cash_flows.purchase_count }} post-inception buys deducted</small></article><article><span>Stock sale proceeds</span><strong>{{ money(fund.stock_cash_flows.sale_proceeds) }}</strong><small>{{ fund.stock_cash_flows.sale_count }} closures returned to cash</small></article></div>
+      <p class="fund-auto-note">Investor subscriptions and redemptions update cash automatically. Adding a bet in the assigned stock scope consumes its buy cost; closing it returns quantity × sell price.</p>
+    </div>
+  </div>
+
+</section>
+
+<section class="management-panel fund-investors-panel"><div class="panel-head"><div><p class="eyebrow">Unit holders</p><h2>Investor Register</h2><p>Current value is units × current NAV. Test investors and their transactions can be permanently deleted.</p></div><form method="post" action="{{ url_for('fund_management.purge_test_investors', fund_id=fund.fund.id) }}" onsubmit="return confirm('Permanently delete every test investor and all their transactions?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Delete All Test Investors</button></form></div><div class="table-wrap"><table class="management-table"><thead><tr><th>Investor</th><th>Status</th><th class="number">Units</th><th class="number">Ownership</th><th class="number">Funded / assigned</th><th class="number">Redeemed</th><th class="number">Current value</th><th class="number">Gain</th><th>Actions</th></tr></thead><tbody>
+{% for row in fund.investors %}<tr class="{{ 'fund-investor-archived' if not row.is_active else '' }}"><td><strong>{{ row.name }}</strong>{% if row.is_test_data %}<span class="status warning fund-test-badge">Test</span>{% endif %}<small>{{ row.email or row.phone or '' }}</small></td><td><span class="status {{ 'closed' if not row.is_active else '' }}">{{ 'Active' if row.is_active else 'Archived' }}</span></td><td class="number">{{ number(row.units) }}</td><td class="number">{{ '%.2f'|format(row.ownership_pct) }}%</td><td class="number">{{ money(row.subscribed) }}</td><td class="number">{{ money(row.redeemed) }}</td><td class="number"><strong>{{ money(row.current_value) }}</strong></td><td class="number {{ 'negative' if row.gain < 0 else 'positive' }}">{{ money(row.gain) }}</td><td class="actions">{% if row.is_active %}<a class="button" href="{{ url_for('fund_management.investor_statement', fund_id=fund.fund.id, investor_id=row.id) }}">View Statement</a><form method="post" action="{{ url_for('fund_management.remove_investor', fund_id=fund.fund.id, investor_id=row.id) }}" onsubmit="return confirm('{{ 'Permanently delete this test investor and every related transaction?' if row.is_test_data else 'Remove this investor? Investors with transaction history will be archived.' }}');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">{{ 'Delete Test Data' if row.is_test_data else 'Remove' }}</button></form>{% else %}<a class="button" href="{{ url_for('fund_management.investor_statement', fund_id=fund.fund.id, investor_id=row.id) }}">View Statement</a>{% endif %}</td></tr>{% else %}<tr><td class="empty" colspan="9">No investors yet.</td></tr>{% endfor %}
+</tbody></table></div></section>
+
+<section class="management-panel"><div class="panel-head"><div><p class="eyebrow">Audit trail</p><h2>Fund Transactions</h2></div></div><div class="table-wrap"><table class="management-table"><thead><tr><th>Date</th><th>Investor</th><th>Type</th><th class="number">NAV</th><th class="number">Units</th><th class="number">Amount</th><th>Notes</th></tr></thead><tbody>
+{% for row in fund.transactions %}<tr><td>{{ row.transaction_date }}</td><td>{{ row.investor_name or 'Fund cash' }}</td><td><span class="status">{{ row.transaction_type.replace('_', ' ').title() }}</span></td><td class="number">{{ money(row.nav) if row.nav else '-' }}</td><td class="number">{{ number(row.units) }}</td><td class="number">{{ money(row.amount) }}</td><td>{{ row.notes or '-' }}</td></tr>{% else %}<tr><td class="empty" colspan="7">No fund transactions recorded.</td></tr>{% endfor %}
+</tbody></table></div></section>
+
+<script>(() => { const mode=document.querySelector('[data-allocation-mode]'); if(!mode)return; const sync=()=>{document.querySelectorAll('[data-percentage-field]').forEach(x=>x.hidden=mode.value!=='percentage');document.querySelectorAll('[data-funding-field]').forEach(x=>x.hidden=mode.value!=='funding');};mode.addEventListener('change',sync);sync();})();</script>
+<script>
+(() => {
+  const panel=document.querySelector('[data-fund-growth-url]'); if(!panel)return;
+  const canvas=panel.querySelector('canvas'),empty=panel.querySelector('[data-growth-empty]'),tooltip=panel.querySelector('[data-growth-tooltip]'),ctx=canvas.getContext('2d');
+  const returnText=v=>`${v>=0?'+':''}${v.toFixed(2)}%`;
+  fetch(panel.dataset.fundGrowthUrl).then(r=>r.json()).then(data=>{
+    const fund=data.fund||[],nifty=data.nifty||[];
+    if(!fund.length){empty.textContent='No NAV history is available yet.';return;}
+    empty.style.display='none';
+    const all=[...fund,...nifty],dates=all.map(p=>new Date(`${p.date}T00:00:00`).getTime()),values=all.map(p=>p.value);
+    const minDate=Math.min(...dates),maxDate=Math.max(...dates),minValue=Math.min(...values,98),maxValue=Math.max(...values,102),pad={top:28,right:35,bottom:45,left:58};
+    const x=p=>pad.left+((new Date(`${p.date}T00:00:00`).getTime()-minDate)/(maxDate-minDate||1))*(canvas.width-pad.left-pad.right);
+    const y=p=>pad.top+(1-(p.value-minValue)/(maxValue-minValue||1))*(canvas.height-pad.top-pad.bottom);
+    ctx.clearRect(0,0,canvas.width,canvas.height);ctx.font='12px Inter,Arial,sans-serif';ctx.strokeStyle='#e2e8f0';ctx.fillStyle='#64748b';
+    [minValue,(minValue+maxValue)/2,maxValue].forEach(v=>{const py=pad.top+(1-(v-minValue)/(maxValue-minValue||1))*(canvas.height-pad.top-pad.bottom);ctx.beginPath();ctx.moveTo(pad.left,py);ctx.lineTo(canvas.width-pad.right,py);ctx.stroke();ctx.fillText(v.toFixed(1),8,py+4);});
+    const draw=(points,color)=>{if(!points.length)return;ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(x(p),y(p)):ctx.moveTo(x(p),y(p)));ctx.strokeStyle=color;ctx.lineWidth=3;ctx.lineJoin='round';ctx.stroke();points.forEach(p=>{ctx.beginPath();ctx.fillStyle=color;ctx.arc(x(p),y(p),3.5,0,Math.PI*2);ctx.fill();});};
+    draw(nifty,'#f59e0b');draw(fund,'#0284c7');
+    const first=new Date(minDate),last=new Date(maxDate);ctx.fillStyle='#64748b';ctx.textAlign='left';ctx.fillText(first.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}),pad.left,canvas.height-15);ctx.textAlign='right';ctx.fillText(last.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}),canvas.width-pad.right,canvas.height-15);
+    panel.querySelector('[data-fund-return]').textContent=returnText(fund[fund.length-1].value-100);panel.querySelector('[data-nifty-return]').textContent=nifty.length?returnText(nifty[nifty.length-1].value-100):'Unavailable';
+    canvas.addEventListener('mousemove',e=>{const rect=canvas.getBoundingClientRect(),mx=(e.clientX-rect.left)*(canvas.width/rect.width),nearest=fund.reduce((best,p)=>Math.abs(x(p)-mx)<best.d?{p,d:Math.abs(x(p)-mx)}:best,{p:fund[0],d:Infinity}).p;tooltip.innerHTML=`<strong>${nearest.date}</strong><span>NAV: ₹${Number(nearest.nav).toLocaleString('en-IN',{minimumFractionDigits:4,maximumFractionDigits:4})}</span><span>Growth index: ${nearest.value.toFixed(2)}</span>`;tooltip.style.display='grid';tooltip.style.left=`${Math.min(e.offsetX+14,panel.clientWidth-190)}px`;tooltip.style.top=`${Math.max(e.offsetY-60,10)}px`;});canvas.addEventListener('mouseleave',()=>tooltip.style.display='none');
+  }).catch(()=>{empty.textContent='Growth comparison is temporarily unavailable.';});
+})();
+</script>
+{% endblock %}

@@ -33,7 +33,7 @@ Detailed docs are available in:
 Default local path:
 
 ```powershell
-C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V3
+C:\Anand\VSS_Workspace\StockMonitor-V3
 ```
 
 ## Requirements
@@ -61,7 +61,7 @@ They are listed in `requirements.txt`.
 Open PowerShell:
 
 ```powershell
-cd "C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V3"
+cd "C:\Anand\VSS_Workspace\StockMonitor-V3"
 py -m venv .venv
 & ".\.venv\Scripts\pip.exe" install -r requirements.txt
 ```
@@ -77,7 +77,7 @@ Easy option:
 Or run Python directly:
 
 ```powershell
-cd "C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V3"
+cd "C:\Anand\VSS_Workspace\StockMonitor-V3"
 & ".\.venv\Scripts\python.exe" app.py
 ```
 
@@ -131,6 +131,56 @@ Options dashboard:      http://127.0.0.1:5002/options
 Add option bet:         http://127.0.0.1:5002/options/new
 Portfolio review:       http://127.0.0.1:5002/index-membership
 Export Excel:           http://127.0.0.1:5002/export/excel
+Actual P/L API:         http://127.0.0.1:5002/api/portfolio/actual-pl
+```
+
+## PortfolioManager Actual P/L API
+
+Use this endpoint from PortfolioManager to read actual stock and option P/L:
+
+```text
+GET http://127.0.0.1:5002/api/portfolio/actual-pl
+```
+
+For summary only:
+
+```text
+GET http://127.0.0.1:5002/api/portfolio/actual-pl?details=0
+```
+
+The response includes:
+
+- `combined.realized_pl`
+- `combined.actual_pl`
+- `stocks.summary.realized_pl`
+- `stocks.summary.unrealized_pl`
+- `options.summary.realized_pl`
+- `year_wise` keyed by year with `stock_realized_pl` and `option_realized_pl`
+- optional `stocks.bets` and `options.bets` row-level details
+
+Example yearly data:
+
+```json
+{
+  "year_wise": {
+    "2026": {
+      "stock_realized_pl": 24050.02,
+      "option_realized_pl": 52254.75
+    }
+  }
+}
+```
+
+Optional API key protection:
+
+```powershell
+$env:PORTFOLIO_API_KEY="your-local-api-key"
+```
+
+Then send:
+
+```text
+X-API-Key: your-local-api-key
 ```
 
 ## What V3 Adds Over V2
@@ -251,6 +301,36 @@ REPORT_TIME=15:35
 CHECK_INTERVAL_MINUTES=30
 ```
 
+### Scheduler Scope
+
+```ini
+[SCHEDULER]
+STOCK_GROUP_CODES=SWING
+PRICE_FETCH_WORKERS=8
+```
+
+Only stock groups listed here are used by the scheduler for price refreshes,
+WhatsApp alerts, generated stock reports, EOD email, and EOD publishing. Keep it
+as `SWING` unless you intentionally want another stock group automated.
+The scheduler first requests all unique symbols through Yahoo's bulk download,
+then uses up to `PRICE_FETCH_WORKERS` parallel requests only for symbols missing
+from the bulk response. Values are limited to 1-16; use `1` for sequential
+fallback requests.
+
+### Performance Controls
+
+```ini
+[OPTIONS]
+WHATIF_TRADE_LIMIT=100
+STOCK_MOVE_BACKFILL_LIMIT=5
+```
+
+`WHATIF_TRADE_LIMIT` caps the detailed simulated trade rows shown in the
+Options What-if report. `STOCK_MOVE_BACKFILL_LIMIT` caps how many missing option
+stock-move values the app tries to fetch during one page load. Keep this small
+so Options pages stay responsive as data grows; the missing values will continue
+to fill gradually across later loads.
+
 ### Email
 
 ```ini
@@ -273,12 +353,25 @@ PHONE_NUMBER_ID=your-phone-number-id
 RECIPIENT=recipient-phone-number
 ```
 
+WhatsApp is the primary alert channel. If it is disabled, incompletely configured,
+or its API request fails, the scheduler sends the alert through both Telegram and
+email instead.
+
+### Telegram
+
+```ini
+[TELEGRAM]
+ENABLE_TELEGRAM=YES
+BOT_TOKEN=your-telegram-bot-token
+CHAT_ID=your-telegram-chat-id
+```
+
 ### Publishing
 
 ```ini
 [PUBLISH]
 ENABLE_AFTER_EOD=YES
-PUBLIC_DIR=C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V2\public
+PUBLIC_DIR=C:\Anand\VSS_Workspace\Whatsapp Alerts\StockMonitor-V2\public
 ```
 
 ## Run Scheduler Manually
@@ -286,9 +379,9 @@ PUBLIC_DIR=C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V2\pub
 The scheduler:
 
 - Runs price checks during Indian market hours.
-- Updates current prices.
+- Updates current prices for configured stock groups only.
 - Sends WhatsApp alerts if configured.
-- Generates reports every market cycle.
+- Generates reports every market cycle for configured stock groups only.
 - Sends EOD email after market close.
 - Publishes masked report after successful EOD if enabled.
 - Uses a single-instance lock so duplicate scheduler starts exit instead of sending duplicate alerts or publishing duplicate reports.
@@ -296,7 +389,7 @@ The scheduler:
 Run continuously:
 
 ```powershell
-cd "C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V3"
+cd "C:\Anand\VSS_Workspace\StockMonitor-V3"
 & ".\.venv\Scripts\python.exe" scheduler.py
 ```
 
@@ -317,7 +410,7 @@ Run once and force checks outside market hours:
 This installs the scheduler to start when you log in to Windows.
 
 ```powershell
-cd "C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V3"
+cd "C:\Anand\VSS_Workspace\StockMonitor-V3"
 .\install_scheduler_task.ps1
 ```
 
@@ -379,6 +472,11 @@ Select-String -Path ".\logs\2026-07-17.log" -Pattern "Scheduled market check","W
 
 The EOD process starts after `REPORT_TIME`, default `15:35`.
 
+Before sending the EOD email, the scheduler refreshes current prices for the
+enabled stock groups. After a successful EOD email, it regenerates the masked and
+target report snapshots and publishes the masked report when publishing is
+enabled.
+
 It sends once per day. The sent state is stored in:
 
 ```text
@@ -402,7 +500,7 @@ Prerequisites:
 Current setup publishes from V3 reports into:
 
 ```text
-C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V2\public
+C:\Anand\VSS_Workspace\StockMonitor-V3\public
 ```
 
 Generate a report by opening:
@@ -473,6 +571,65 @@ Copy-Item ".\data\stock_monitor.db" ".\data\stock_monitor_backup_$(Get-Date -For
 
 ## Troubleshooting
 
+### Portfolio Analytics stock activity
+
+The stock-only Bet Activity section supports ISO-weekly, monthly, calendar-quarter
+and yearly views. Opened counts/capital use Buy Date; closed counts, proceeds and
+realized P/L use Sell Date. Selecting a summary period drills into its events.
+Detail search, event filters, numeric/date sorting, and 15/25/50/100-row pagination
+do not change summary calculations. Options are excluded.
+
+### Funding Sustainability report controls
+
+The scenario comparison supports exact-value numeric sorting, including metrics
+shown as secondary text through its Sort metric selector. The event ledger has
+ticker/bet search, buy/exit and fresh/recycled-funding filters, sortable headers,
+and 25/50/100-row pages. Both tables have ascending/descending controls and
+independent pagination. Sorting never recalculates historical cash balances;
+filters affect detail rows only, not scenario totals or charts.
+
+### Profit Booking Simulation: −15% stop comparison
+
+Open bets purchased today with a valid stored current price are included in both
+stop scenarios at current MTM, even without post-purchase daily history. A
+dedicated table shows the latest price relative to each stop and the recorded
+target. Earlier intraday touches remain unverified; this does not fabricate a
+realized exit or change the actual bet. Missing prices and older missing-history
+bets are still reported as unavailable.
+
+The stop dashboard now compares both −15% (85% of entry) and −75% (25% of
+entry) using the same OHLC history. Each scenario shows hit count, realized P/L
+from stop exits only, other closed-bet realized P/L, total realized P/L, remaining
+open MTM, invested capital at purchase cost, and cash proceeds released by stops.
+The two searchable, sortable, paginated stop-exit ledgers default to hit bets.
+Profit-target analysis remains available separately in an expandable section.
+
+The Live Report-style comparison separates realized P/L, open unrealized P/L,
+combined P/L, open/closed counts, and remaining open capital at cost. Actual-all
+totals remain visible next to the matched historical-data cohort. A simulated
+stop on an actually open bet moves that bet to simulated closed/realized, with
+zero remaining unrealized P/L. Open and Closed Bets tables are grouped by actual
+status, show simulated status alongside it, and offer independent sorting,
+ticker search, stop/exclusion filters, and 15/25/50/100-row pagination.
+Filtering detail tables does not change summary totals.
+
+The stock-only Profit Booking Simulation includes a fixed 15% stop overlay
+against actual realized P/L for closed bets and current MTM for open bets.
+If a daily Low touches 85% of the purchase price, the simulated exit is the stop
+price, or the daily Open when it gaps below the stop. Otherwise the actual result
+is retained. Stops start the day after purchase; on an actual sale date, a stop
+touch is assumed to precede the recorded exit. No additional profit target,
+re-entry, reinvestment, fees or corporate-action adjustments are modelled.
+Missing OHLC/actual valuations are excluded from both comparison totals and
+shown explicitly. Existing profit-target comparisons remain separate.
+
+Historical quotes are prefetched with six workers; database and cache-file writes
+remain on the calling thread. Historical ranges are cached, today's ranges expire
+after five minutes, and repeated rendering no longer appends to cached price lists.
+The first visit after the OHLC cache upgrade may be slower. A data-only check on
+4 September 2026 took 8.05 seconds initially and 0.21 seconds on a repeat load;
+this excludes browser rendering and is not a guaranteed response time.
+
 ### App does not start
 
 Check virtual environment exists:
@@ -503,16 +660,88 @@ Stop-Process -Id <process-id> -Force
 
 ### Scheduler is not running
 
-Check task:
+The web application and scheduler are separate processes. Starting `app.py` does
+not start `scheduler.py`.
+
+1. Check whether the V3 scheduler process is running. The full command line is
+important because another StockMonitor checkout may also have a scheduler:
 
 ```powershell
-Get-ScheduledTask -TaskName "StockMonitorV3Scheduler" | Get-ScheduledTaskInfo
+Get-CimInstance Win32_Process |
+    Where-Object { $_.Name -match "python" -and $_.CommandLine -match "StockMonitor-V3.*scheduler\.py" } |
+    Select-Object ProcessId, CreationDate, CommandLine
 ```
 
-Check logs:
+2. Check the Windows task state and last result:
+
+```powershell
+$Task = Get-ScheduledTask -TaskName "StockMonitorV3Scheduler"
+$Info = $Task | Get-ScheduledTaskInfo
+$Task | Select-Object TaskName, State
+$Info | Select-Object LastRunTime, LastTaskResult, NextRunTime
+```
+
+Useful result codes:
+
+- `0x00041301`: the task is currently running.
+- `0xC000013A`: the scheduler was interrupted or terminated, for example when
+  its console was closed or Windows stopped the process.
+- A blank `NextRunTime` is normal for an at-logon trigger.
+
+3. Confirm that the task action points to this repository, not an older checkout:
+
+```powershell
+(Get-ScheduledTask -TaskName "StockMonitorV3Scheduler").Actions |
+    Select-Object Execute, Arguments, WorkingDirectory
+```
+
+The expected working directory is
+`C:\Anand\VSS_Workspace\StockMonitor-V3`.
+
+4. Inspect today's log for startup, locking, or Python errors:
 
 ```powershell
 Get-Content ".\logs\$(Get-Date -Format yyyy-MM-dd).log" -Tail 100
+```
+
+A healthy startup contains both `Scheduler instance lock acquired` and
+`Scheduler started`. If the lock cannot be acquired, another V3 scheduler is
+already running; do not start another copy.
+
+5. Start the installed task and check it again:
+
+```powershell
+Start-ScheduledTask -TaskName "StockMonitorV3Scheduler"
+Start-Sleep -Seconds 3
+Get-ScheduledTask -TaskName "StockMonitorV3Scheduler" | Get-ScheduledTaskInfo
+```
+
+Alternatively, run the scheduler in the foreground to see errors immediately:
+
+```powershell
+.\start_scheduler.cmd
+```
+
+6. If automatic startup is missing or has the wrong path, reinstall it from an
+elevated PowerShell window (Run as Administrator):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\install_scheduler_task.ps1"
+```
+
+Administrator rights may be required to replace an existing scheduled task.
+The installer otherwise creates this per-user Startup-folder fallback:
+
+```powershell
+$StartupLauncher = Join-Path ([Environment]::GetFolderPath("Startup")) "StockMonitorV3Scheduler.cmd"
+Test-Path $StartupLauncher
+Get-Content $StartupLauncher
+```
+
+The fallback runs at the next Windows login. To use it immediately:
+
+```powershell
+& $StartupLauncher
 ```
 
 ### EOD email not received
@@ -538,7 +767,23 @@ Check:
 
 - Replace default admin password.
 - Use `ADMIN_PASSWORD_HASH`.
+- Set `APP_SECRET_KEY` when binding beyond `127.0.0.1`.
+- Set `PORTFOLIO_API_KEY` for the portfolio API (`X-API-Key` header only).
 - Move secrets out of committed files.
 - Keep target-visible report private.
 - Use HTTPS on hosted deployments.
 - Back up the database regularly.
+- Run `.\cleanup_reports.ps1` periodically if scheduler cleanup is disabled.
+
+## Tests
+
+```powershell
+& ".\.venv\Scripts\python.exe" -m pytest
+```
+# NSE market holidays
+
+The scheduler skips weekends and every date listed in `MARKET.HOLIDAYS` in
+`config.ini`. Keep the value as a comma-separated list of ISO dates
+(`YYYY-MM-DD`) and update it annually from the official NSE trading-holiday
+circular. The holiday guard applies to intraday price checks, alerts, EOD
+processing, and calculation of the next scheduler wake-up.

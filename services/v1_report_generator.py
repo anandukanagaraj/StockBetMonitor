@@ -10,16 +10,37 @@ from services.date_utils import (
     parse_date as parse_shared_date,
     position_identity,
 )
+from services.number_format import (
+    format_indian_decimal,
+    format_indian_money,
+    format_indian_number,
+)
+
+GROWW_STOCK_PATHS = {}
+try:
+    GROWW_STOCK_PATHS = json.loads(
+        (Path(__file__).resolve().parents[1] / "data" / "groww_stock_slugs.json").read_text(encoding="utf-8")
+    )
+except (OSError, json.JSONDecodeError):
+    pass
 
 
 class ReportGenerator:
 
-    def generate_html(self, positions, show_target_price=False):
+    def generate_html(self, positions, show_target_price=False, include_app_nav=False):
 
         Path("reports").mkdir(exist_ok=True)
 
         generated_at = datetime.now()
-        report_kind = "targets" if show_target_price else "masked"
+        report_kind = (
+            "app_targets"
+            if include_app_nav and show_target_price
+            else "app_masked"
+            if include_app_nav
+            else "targets"
+            if show_target_price
+            else "masked"
+        )
         filename = f"reports/report_{report_kind}_{generated_at.strftime('%Y%m%d_%H%M%S')}.html"
         logo_path = Path("static/logo-mark.png")
         logo_data_uri = ""
@@ -134,8 +155,18 @@ class ReportGenerator:
                 continue
 
             remaining_pct = (target_price - current_price) / target_price * 100
-            if current_price < target_price and remaining_pct <= 5:
+            if current_price >= value_as_float(p.buy_price) and remaining_pct <= 5:
                 near_target.append(p)
+        near_target = sorted(
+            near_target,
+            key=lambda p: (
+                (value_as_float(p.target_price) - value_as_float(p.current_price))
+                / value_as_float(p.target_price)
+                * 100
+                if value_as_float(p.target_price) and value_as_float(p.current_price) is not None
+                else 999
+            ),
+        )[:5]
 
         total_invested = sum(
             (value_as_float(p.buy_price) or 0) * (value_as_float(p.qty) or 0)
@@ -202,7 +233,16 @@ class ReportGenerator:
         outcome_neutral_rate = max(0, 100 - (outcome_win_rate or 0) - outcome_loss_rate)
         win_label = "win" if total_wins == 1 else "wins"
         loss_label = "loss" if closed_losers_count == 1 else "losses"
+        first_bet_buy_date = min(
+            [
+                parsed_date
+                for parsed_date in (parse_date(position.buy_date) for position in positions)
+                if parsed_date is not None
+            ],
+            default=None,
+        )
         winning_hold_days = []
+        winning_sell_dates = []
         for position in closed_positions:
             if (closed_profit(position) or 0) <= 0:
                 continue
@@ -213,10 +253,27 @@ class ReportGenerator:
                 continue
 
             winning_hold_days.append((sell_date - buy_date).days)
+            winning_sell_dates.append(sell_date)
 
         avg_winning_hold_days = (
             sum(winning_hold_days) / len(winning_hold_days)
             if winning_hold_days
+            else None
+        )
+        winning_sell_dates = sorted(winning_sell_dates)
+        winner_gap_start_dates = (
+            [first_bet_buy_date] + winning_sell_dates[:-1]
+            if first_bet_buy_date is not None and winning_sell_dates
+            else winning_sell_dates[:-1]
+        )
+        winner_gap_days = [
+            (current_date - previous_date).days
+            for previous_date, current_date in zip(winner_gap_start_dates, winning_sell_dates)
+            if previous_date is not None and current_date >= previous_date
+        ]
+        avg_winner_gap_days = (
+            sum(winner_gap_days) / len(winner_gap_days)
+            if winner_gap_days
             else None
         )
 
@@ -224,7 +281,7 @@ class ReportGenerator:
             value = value_as_float(value)
             if value is None:
                 return "-"
-            return f"₹{value:,.2f}"
+            return format_indian_money(value)
 
         def compact_money(value):
             value = value_as_float(value)
@@ -238,13 +295,13 @@ class ReportGenerator:
                 return f"{sign}₹{abs_value / 10_000_000:.2f}Cr"
             if abs_value >= 100_000:
                 return f"{sign}₹{abs_value / 100_000:.2f}L"
-            return f"{sign}₹{abs_value:,.2f}"
+            return format_indian_money(value)
 
         def number(value):
             value = value_as_float(value)
             if value is None:
                 return "-"
-            return f"{value:,.2f}"
+            return format_indian_number(value, 2)
 
         def compact_number(value):
             value = value_as_float(value)
@@ -258,15 +315,15 @@ class ReportGenerator:
                 return f"{sign}{abs_value / 10_000_000:.2f}Cr"
             if abs_value >= 100_000:
                 return f"{sign}{abs_value / 100_000:.2f}L"
-            return f"{value:,.2f}"
+            return format_indian_number(value, 2)
 
         def qty(value):
             value = value_as_float(value)
             if value is None:
                 return "-"
             if value.is_integer():
-                return f"{value:,.0f}"
-            return f"{value:,.2f}".rstrip("0").rstrip(".")
+                return format_indian_number(value, decimals=None)
+            return format_indian_decimal(value)
 
         def pct(value):
             value = value_as_float(value)
@@ -295,6 +352,16 @@ class ReportGenerator:
             if value is None:
                 return "-"
             return escape(str(value))
+
+        def groww_stock_link(position):
+            ticker = str(position.ticker or "").strip()
+            if not ticker:
+                return text(position.ticker)
+            groww_path = GROWW_STOCK_PATHS.get(ticker.upper())
+            if not groww_path:
+                return text(position.ticker)
+            href = f"https://groww.in{groww_path}"
+            return f'<a href="{escape(href, quote=True)}" target="_blank" rel="noopener noreferrer">{text(position.ticker)}</a>'
 
         def display_number(value):
             return f'<span class="compact-value" title="{number(value)}">{compact_number(value)}</span>'
@@ -356,10 +423,20 @@ class ReportGenerator:
             remaining = remaining_to_target(position)
             if target_price and remaining is not None:
                 remaining_pct = remaining / target_price * 100
-                if remaining_pct <= 5:
+                if current_price >= value_as_float(position.buy_price) and remaining_pct <= 5:
                     return "Near Target", "warning"
 
             return "Hold", "info"
+
+        def open_status_priority(position):
+            """Order the daily report by actionability before performance."""
+            status_label, _ = status_for(position)
+            return {
+                "Target Hit": 0,
+                "Near Target": 1,
+                "Hold": 2,
+                "Price Missing": 3,
+            }.get(status_label, 4)
 
         def table_rows(rows):
             rendered = []
@@ -373,7 +450,7 @@ class ReportGenerator:
                     f"""
                     <tr>
                         <td data-sort-value="{text(p.ticker).lower()}">
-                            <strong>{text(p.ticker)}</strong>
+                            <strong>{groww_stock_link(p)}</strong>
                             <span class="subtle">Bet {text(p.bet_no)}</span>
                         </td>
                         <td data-sort-value="{sort_buy_date(p)}">{display_buy_date(p)}</td>
@@ -383,7 +460,7 @@ class ReportGenerator:
                         <td data-sort-value="{value_as_float(p.target_price) or 0}">{display_number(p.target_price) if show_target_price else '<span class="pill neutral-pill">Locked</span>'}</td>
                         <td class="{pl_class(row_profit)}" data-sort-value="{row_profit if row_profit is not None else 0}">{display_money(row_profit)}</td>
                         <td class="{pl_class(row_profit_pct)}" data-sort-value="{row_profit_pct if row_profit_pct is not None else 0}">{pct(row_profit_pct)}</td>
-                        <td><span class="pill {status_class}">{status_label}</span></td>
+                        <td data-sort-value="{open_status_priority(p)}"><span class="pill {status_class}">{status_label}</span></td>
                     </tr>
                     """
                 )
@@ -402,7 +479,7 @@ class ReportGenerator:
                     f"""
                     <tr>
                         <td data-sort-value="{text(p.ticker).lower()}">
-                            <strong>{text(p.ticker)}</strong>
+                            <strong>{groww_stock_link(p)}</strong>
                             <span class="subtle">Bet {text(p.bet_no)}</span>
                         </td>
                         <td data-sort-value="{sort_buy_date(p)}">{display_buy_date(p)}</td>
@@ -431,12 +508,6 @@ class ReportGenerator:
 
             return price * qty
 
-        def chart_date(position):
-            return position.sell_date or position.buy_date or ""
-
-        def normalized_chart_date(position, previous_date=None):
-            return normalize_mixed_date(chart_date(position), previous_date)
-
         def sort_key(position):
             bet_no = value_as_float(position.bet_no)
             if bet_no is not None:
@@ -445,41 +516,58 @@ class ReportGenerator:
 
         def portfolio_chart_data(rows):
             chart_rows = [p for p in sorted(rows, key=sort_key) if value_as_float(p.qty)]
-            chart_records = []
+            chart_events = []
             cumulative_invested = 0
             cumulative_realized_profit = 0
             points = []
-            previous_chart_date = None
 
             for position in chart_rows:
-                point_date = normalized_chart_date(position, previous_chart_date)
-                if point_date is not None:
-                    previous_chart_date = point_date
+                buy_date = buy_date_for(position)
+                chart_events.append((position, buy_date, "buy"))
+                if position_status(position) != "open":
+                    sell_date = normalize_mixed_date(position.sell_date, buy_date) or buy_date
+                    chart_events.append((position, sell_date, "realized"))
 
-                chart_records.append((position, point_date))
+            def event_rank(item):
+                position, _, event_type = item
+                if event_type == "buy":
+                    return 0
+                realized_change = closed_profit(position) or 0
+                return 1 if realized_change >= 0 else 2
 
-            chart_records.sort(
+            chart_events.sort(
                 key=lambda item: (
                     item[1] or date.max,
+                    event_rank(item),
+                    str(item[0].ticker or "").casefold(),
                     sort_key(item[0]),
                 )
             )
 
-            for position, point_date in chart_records:
-                cumulative_invested += invested_value(position)
+            for position, point_date, event_type in chart_events:
+                position_buy_date = buy_date_for(position)
+                position_sell_date = normalize_mixed_date(position.sell_date, position_buy_date)
+                if event_type == "buy":
+                    cumulative_invested += invested_value(position)
                 realized_change = 0
-                if position_status(position) != "open":
+                if event_type == "realized":
                     realized_change = closed_profit(position) or 0
                     cumulative_realized_profit += realized_change
 
-                event_label = "Realized profit" if realized_change else "Bet added"
+                event_label = "Bet added" if event_type == "buy" else "Profit realized"
 
                 points.append(
                     {
                         "label": str(position.ticker or ""),
-                        "date": point_date.strftime("%Y-%m-%d") if point_date else str(chart_date(position)),
+                        "betNo": position.bet_no,
+                        "date": point_date.strftime("%Y-%m-%d") if point_date else "",
+                        "buyDate": position_buy_date.strftime("%Y-%m-%d") if position_buy_date else str(position.buy_date or ""),
+                        "sellDate": position_sell_date.strftime("%Y-%m-%d") if position_sell_date else str(position.sell_date or ""),
+                        "holdingDays": (position_sell_date - position_buy_date).days if position_sell_date and position_buy_date else None,
+                        "eventType": event_type,
+                        "isClosedBet": position_status(position) != "open",
                         "invested": round(cumulative_invested, 2),
-                        "investedAmount": round(invested_value(position), 2),
+                        "investedAmount": round(invested_value(position), 2) if event_type == "buy" else 0,
                         "realized": round(cumulative_realized_profit, 2),
                         "realizedChange": round(realized_change, 2),
                         "eventLabel": event_label,
@@ -512,7 +600,7 @@ class ReportGenerator:
                     f"""
                     <tr>
                         <td class="rank">{index}</td>
-                        <td><strong>{text(position.ticker)}</strong></td>
+                        <td><strong>{groww_stock_link(position)}</strong></td>
                         <td class="{css_class}">{value_formatter(value)}</td>
                     </tr>
                     """
@@ -531,17 +619,69 @@ class ReportGenerator:
 
             return "\n".join(rendered)
 
-        def target_or_locked_value(position):
-            return position.target_price if show_target_price else "Locked"
+        def near_target_tooltip(position, status_label):
+            current_price = value_as_float(position.current_price)
+            target_price = value_as_float(position.target_price)
+            lines = [
+                f"Status: {status_label}",
+                f"Current: {number(current_price)}",
+            ]
+            if show_target_price and target_price:
+                remaining = target_price - current_price if current_price is not None else None
+                remaining_pct = remaining / target_price * 100 if remaining is not None else None
+                lines.extend(
+                    [
+                        f"Target: {number(target_price)}",
+                        f"Gap: {number(remaining)} ({pct(remaining_pct)})",
+                    ]
+                )
+            return escape("\n".join(lines), quote=True)
 
-        def target_or_locked_formatter(value):
-            if show_target_price:
-                return number(value)
-            return '<span class="pill neutral-pill">Locked</span>'
+        def near_target_rows(rows):
+            if not rows:
+                return """
+                    <tr>
+                        <td colspan="3" class="empty">No bets to show.</td>
+                    </tr>
+                    <tr class="placeholder-row"><td class="rank">2</td><td>-</td><td>-</td></tr>
+                    <tr class="placeholder-row"><td class="rank">3</td><td>-</td><td>-</td></tr>
+                    <tr class="placeholder-row"><td class="rank">4</td><td>-</td><td>-</td></tr>
+                    <tr class="placeholder-row"><td class="rank">5</td><td>-</td><td>-</td></tr>
+                """
+
+            rendered = []
+            for index, position in enumerate(rows, start=1):
+                status_label, status_class = status_for(position)
+                rendered.append(
+                    f"""
+                    <tr title="{near_target_tooltip(position, status_label)}">
+                        <td class="rank">{index}</td>
+                        <td>
+                            <strong>{groww_stock_link(position)}</strong>
+                            <span class="subtle">Bet {text(position.bet_no)}</span>
+                        </td>
+                        <td><span class="pill {status_class}">{status_label}</span></td>
+                    </tr>
+                    """
+                )
+
+            for index in range(len(rows) + 1, 6):
+                rendered.append(
+                    f"""
+                    <tr class="placeholder-row">
+                        <td class="rank">{index}</td>
+                        <td>-</td>
+                        <td>-</td>
+                    </tr>
+                    """
+                )
+
+            return "\n".join(rendered)
 
         open_positions_by_pl_pct = sorted(
             open_positions,
             key=lambda position: (
+                open_status_priority(position),
                 profit_percent(position) is None,
                 -(profit_percent(position) or 0),
                 text(position.ticker).lower(),
@@ -558,6 +698,36 @@ class ReportGenerator:
             closed_table_rows(closed_positions)
             if closed_positions
             else '<tr><td colspan="9" class="empty">No closed bets yet.</td></tr>'
+        )
+        # Flask injects templates/_navigation.html for application reports.
+        # Keeping navigation out of snapshots prevents it drifting from base.html.
+        app_nav_html = ""
+        live_report_refresh_html = (
+            """
+        <a class="hero-refresh-action" href="/report-targets?refresh=1" title="Refresh live prices and rebuild both stock reports">
+            <span class="hero-refresh-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M20 6v5h-5"></path>
+                    <path d="M4 18v-5h5"></path>
+                    <path d="M18.4 9A7 7 0 0 0 6.7 5.8L4 8.3"></path>
+                    <path d="M5.6 15A7 7 0 0 0 17.3 18.2L20 15.7"></path>
+                </svg>
+            </span>
+            <span>Refresh live data</span>
+        </a>
+"""
+            if include_app_nav and show_target_price
+            else ""
+        )
+        live_table_search_html = (
+            """
+            <label class="report-table-search">
+                <span class="sr-only">Search this table</span>
+                <input type="search" data-table-search placeholder="Search ticker or bet" autocomplete="off">
+            </label>
+"""
+            if include_app_nav and show_target_price
+            else ""
         )
 
         html = f"""<!DOCTYPE html>
@@ -602,6 +772,208 @@ body {{
     font-family: Inter, "Segoe UI", Arial, sans-serif;
 }}
 
+.app-header {{
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 16px 32px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+}}
+
+.brand {{
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--ink);
+    text-decoration: none;
+}}
+
+.brand-mark {{
+    display: inline-flex;
+    width: 42px;
+    height: 42px;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 8px;
+    box-shadow: 0 8px 20px rgba(3, 105, 161, .18);
+}}
+
+.brand-mark img {{
+    display: block;
+    width: 42px;
+    height: 42px;
+}}
+
+.brand strong {{
+    display: block;
+    color: var(--ink);
+    font-size: 17px;
+    line-height: 1.2;
+}}
+
+.app-eyebrow {{
+    display: block;
+    margin: 0 0 4px;
+    color: var(--brand);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}}
+
+.nav-actions {{
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: flex-end;
+}}
+
+.nav-form {{
+    margin: 0;
+}}
+
+.nav-actions a:not(.button) {{
+    color: #334155;
+    font-weight: 700;
+    text-decoration: none;
+}}
+
+.nav-menu {{
+    position: relative;
+}}
+
+.nav-menu summary {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0;
+    color: #334155;
+    cursor: pointer;
+    font-weight: 700;
+    list-style: none;
+    user-select: none;
+}}
+
+.nav-menu summary::-webkit-details-marker {{
+    display: none;
+}}
+
+.nav-menu summary::after {{
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-right: 2px solid #64748b;
+    border-bottom: 2px solid #64748b;
+    transform: rotate(45deg) translateY(-2px);
+}}
+
+.nav-menu[open] summary {{
+    color: var(--brand);
+}}
+
+.nav-dropdown {{
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 60;
+    display: grid;
+    min-width: 220px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 18px 42px rgba(15, 23, 42, .16);
+}}
+
+.reports-menu .nav-dropdown {{
+    right: 0;
+    left: auto;
+}}
+
+.account-menu .nav-dropdown {{
+    right: 0;
+    left: auto;
+}}
+
+.account-dropdown {{
+    width: 280px;
+}}
+
+.account-name {{
+    padding: 8px 12px 4px;
+    color: var(--muted);
+    font-weight: 700;
+}}
+
+.account-password-form {{
+    display: grid;
+    gap: 8px;
+    padding: 8px;
+}}
+
+.account-password-form input {{
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font: inherit;
+}}
+
+.account-password-form button {{
+    padding: 9px 10px;
+    border: 1px solid var(--brand);
+    border-radius: 6px;
+    background: var(--brand);
+    color: #fff;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+}}
+
+.nav-dropdown a {{
+    display: block;
+    padding: 10px 12px;
+    border-radius: 6px;
+    color: #334155;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}}
+
+.nav-dropdown a:hover {{
+    background: #f0f9ff;
+    color: var(--brand);
+}}
+
+.link-button {{
+    border: 0;
+    background: transparent;
+    color: #334155;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+    padding: 0;
+}}
+
+.link-button:hover {{
+    color: var(--brand);
+}}
+
+.nav-actions a,
+.nav-menu summary,
+.link-button {{
+    font-size: 13px;
+    white-space: nowrap;
+}}
+
 html {{
     -webkit-text-size-adjust: 100%;
 }}
@@ -613,6 +985,7 @@ html {{
 }}
 
 .hero {{
+    position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(420px, 0.95fr);
     align-items: stretch;
@@ -623,6 +996,52 @@ html {{
     background: linear-gradient(135deg, var(--brand-dark), #0f766e);
     color: #ffffff;
     box-shadow: var(--shadow);
+}}
+
+.hero-refresh-action {{
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 5px 12px 5px 6px;
+    border: 1px solid rgba(255, 255, 255, .34);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .16);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 800;
+    text-decoration: none;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 12px 28px rgba(2, 6, 23, .18);
+}}
+
+.hero-refresh-action:hover {{
+    border-color: rgba(255, 255, 255, .72);
+    background: rgba(255, 255, 255, .24);
+}}
+
+.hero-refresh-icon {{
+    display: inline-flex;
+    width: 26px;
+    height: 26px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: #0ea5e9;
+    color: #ffffff;
+}}
+
+.hero-refresh-icon svg {{
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }}
 
 .hero-copy {{
@@ -849,6 +1268,51 @@ h1 {{
     font-size: 18px;
 }}
 
+.section-table-heading {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid var(--line);
+}}
+
+.section-table-heading h2 {{
+    flex: 1;
+    border-bottom: 0;
+}}
+
+.report-table-search {{
+    display: flex;
+    align-items: center;
+    padding-right: 16px;
+}}
+
+.report-table-search input {{
+    width: 220px;
+    max-width: 30vw;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}}
+
+.report-table-search input:focus {{
+    border-color: #38bdf8;
+    outline: 2px solid rgba(14, 165, 233, .18);
+}}
+
+.sr-only {{
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+}}
+
 .table-wrap {{
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -1053,6 +1517,11 @@ tbody tr:hover {{
     width: 7px;
 }}
 
+.legend-dot.closed-buy-dot {{
+    background: #22d3ee;
+    border-color: #0e7490;
+}}
+
 .legend-star {{
     color: #f59e0b;
     font-size: 12px;
@@ -1137,6 +1606,11 @@ tbody tr:hover {{
 
 .line-chart circle.bet-added {{
     stroke: #0284c7;
+}}
+
+.line-chart circle.bet-added.bet-closed {{
+    fill: #22d3ee;
+    stroke: #0e7490;
 }}
 
 .event-star {{
@@ -1256,6 +1730,11 @@ th.sorted-desc::after {{
         padding: 22px;
     }}
 
+    .hero-refresh-action {{
+        top: 16px;
+        right: 16px;
+    }}
+
     .hero-profit {{
         text-align: left;
     }}
@@ -1291,7 +1770,51 @@ th.sorted-desc::after {{
     }}
 }}
 
+@media (max-width: 1020px) {{
+    .app-header {{
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 20px;
+    }}
+
+    .nav-actions {{
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }}
+
+    .nav-dropdown,
+    .reports-menu .nav-dropdown {{
+        right: auto;
+        left: 0;
+    }}
+}}
+
 @media (max-width: 640px) {{
+    .app-header {{
+        position: relative;
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 12px;
+        padding: 14px 16px;
+    }}
+
+    .nav-actions {{
+        width: 100%;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+    }}
+
+    .nav-dropdown {{
+        right: auto;
+        left: 0;
+    }}
+
+    .reports-menu .nav-dropdown {{
+        right: auto;
+        left: 0;
+    }}
+
     .page {{
         width: 100%;
         padding: 10px 10px 28px;
@@ -1304,6 +1827,13 @@ th.sorted-desc::after {{
     .hero {{
         padding: 18px;
         border-radius: 0;
+    }}
+
+    .hero-refresh-action {{
+        position: static;
+        justify-self: flex-start;
+        width: max-content;
+        margin-bottom: 4px;
     }}
 
     .hero-meta {{
@@ -1428,8 +1958,10 @@ th.sorted-desc::after {{
 </style>
 </head>
 <body>
+{app_nav_html}
 <main class="page">
     <section class="hero">
+        {live_report_refresh_html}
         <div class="hero-copy">
             <div class="report-brand">
                 <img class="report-logo" src="{logo_data_uri or '/static/logo-mark.png'}" alt="">
@@ -1485,9 +2017,9 @@ th.sorted-desc::after {{
             <span class="card-note">Average P/L % of {len(closed_return_pcts)} closed bets</span>
         </article>
         <article class="card">
-            <h2>Avg Winning Hold</h2>
+            <h2>Winner Timing</h2>
             <p>{days(avg_winning_hold_days)}</p>
-            <span class="card-note">Based on {len(winning_hold_days)} {win_label}</span>
+            <span class="card-note">Avg hold &middot; winners every ~{days(avg_winner_gap_days)}</span>
         </article>
     </section>
 
@@ -1541,10 +2073,10 @@ th.sorted-desc::after {{
             <div class="table-wrap">
                 <table>
                     <thead>
-                        <tr><th>Rank</th><th>Ticker</th><th>Target</th></tr>
+                        <tr><th>Rank</th><th>Ticker</th><th>Status</th></tr>
                     </thead>
                     <tbody>
-                        {ranking_rows(near_target, target_or_locked_value, target_or_locked_formatter)}
+                        {near_target_rows(near_target)}
                     </tbody>
                 </table>
             </div>
@@ -1552,7 +2084,7 @@ th.sorted-desc::after {{
     </section>
 
     <section class="section">
-        <h2>Open Bets</h2>
+        <div class="section-table-heading"><h2>Open Bets</h2>{live_table_search_html}</div>
         <div class="table-wrap">
             <table class="interactive-table" data-page-size="10">
                 <thead>
@@ -1564,8 +2096,8 @@ th.sorted-desc::after {{
                         <th>Current</th>
                         <th>Target</th>
                         <th>P/L</th>
-                        <th class="sorted-desc">P/L %</th>
-                        <th>Status</th>
+                        <th>P/L %</th>
+                        <th class="sorted-asc">Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1577,7 +2109,7 @@ th.sorted-desc::after {{
     </section>
 
     <section class="section">
-        <h2>Closed Bets</h2>
+        <div class="section-table-heading"><h2>Closed Bets</h2>{live_table_search_html}</div>
         <div class="table-wrap">
             <table class="interactive-table" data-page-size="10">
                 <thead>
@@ -1606,6 +2138,37 @@ th.sorted-desc::after {{
 </main>
 <script>
 (function () {{
+    const menus = Array.from(document.querySelectorAll(".nav-menu"));
+
+    menus.forEach((menu) => {{
+        menu.addEventListener("toggle", () => {{
+            if (!menu.open) return;
+            menus.forEach((otherMenu) => {{
+                if (otherMenu !== menu) otherMenu.open = false;
+            }});
+        }});
+
+        menu.querySelectorAll(".nav-dropdown a").forEach((link) => {{
+            link.addEventListener("click", () => {{
+                menu.open = false;
+            }});
+        }});
+    }});
+
+    document.addEventListener("click", (event) => {{
+        if (event.target.closest(".nav-menu")) return;
+        menus.forEach((menu) => {{
+            menu.open = false;
+        }});
+    }});
+
+    document.addEventListener("keydown", (event) => {{
+        if (event.key !== "Escape") return;
+        menus.forEach((menu) => {{
+            menu.open = false;
+        }});
+    }});
+
     const money = new Intl.NumberFormat("en-IN", {{
         style: "currency",
         currency: "INR",
@@ -1757,14 +2320,26 @@ th.sorted-desc::after {{
 
         function tooltipFor(point) {{
             const realizedChange = Number(point.realizedChange) || 0;
+            if (point.eventType === "buy") {{
+                const quantity = Number(point.qty || 0).toLocaleString("en-IN", {{ maximumFractionDigits: 2 }});
+                if (point.isClosedBet) {{
+                    const sellPrice = Number(point.sellPrice || 0);
+                    const buyPrice = Number(point.buyPrice || 0);
+                    const realizedPl = (sellPrice - buyPrice) * Number(point.qty || 0);
+                    const holdingPeriod = point.holdingDays == null ? "-" : `${{point.holdingDays}} days`;
+                    const target = point.targetPrice == null ? "" : `\nTarget: ${{money.format(point.targetPrice)}}`;
+                    return `${{point.label}} · Bet #${{point.betNo}}\nBuy: ${{formatDate(point.buyDate)}} · ${{money.format(point.buyPrice)}} × ${{quantity}}\nInvested: ${{money.format(point.investedAmount)}}\nSell: ${{formatDate(point.sellDate)}} · ${{money.format(point.sellPrice)}}\nRealized P/L: ${{money.format(realizedPl)}} · Held: ${{holdingPeriod}}${{target}}`;
+                }}
+                return `${{point.label}} · Bet #${{point.betNo}}\nBuy: ${{formatDate(point.buyDate)}} · ${{money.format(point.buyPrice)}} × ${{quantity}}\nInvested: ${{money.format(point.investedAmount)}}`;
+            }}
             if (realizedChange > 0) {{
-                return `${{point.label}} - Realized profit ${{money.format(realizedChange)}}`;
+                return `${{point.label}} · Profit ${{money.format(realizedChange)}}\nSell: ${{formatDate(point.sellDate)}} · ${{point.holdingDays}} days`;
             }}
             if (realizedChange < 0) {{
-                return `${{point.label}} - Realized loss ${{money.format(Math.abs(realizedChange))}}`;
+                return `${{point.label}} · Loss ${{money.format(Math.abs(realizedChange))}}\nSell: ${{formatDate(point.sellDate)}} · ${{point.holdingDays}} days`;
             }}
 
-            return `${{point.label}} - Bet added`;
+            return `${{point.label}} · Realized ${{money.format(0)}}\nSell: ${{formatDate(point.sellDate)}} · ${{point.holdingDays}} days`;
         }}
 
         function starPath(x, y, outerRadius = 6.5, innerRadius = 2.9) {{
@@ -1787,7 +2362,7 @@ th.sorted-desc::after {{
 
         const markers = scaled.map((point) => {{
             const realizedChange = Number(point.realizedChange) || 0;
-            if (realizedChange > 0) {{
+            if (point.eventType === "realized" && realizedChange >= 0) {{
                 return `
                     <polygon class="event-star" points="${{starPath(point.x, point.y)}}">
                         <title>${{tooltipFor(point)}}</title>
@@ -1802,7 +2377,7 @@ th.sorted-desc::after {{
                 `;
             }}
             return `
-                <circle class="bet-added" cx="${{point.x.toFixed(1)}}" cy="${{point.y.toFixed(1)}}" r="3.5">
+                <circle class="bet-added${{point.isClosedBet ? " bet-closed" : ""}}" cx="${{point.x.toFixed(1)}}" cy="${{point.y.toFixed(1)}}" r="3.5">
                     <title>${{tooltipFor(point)}}</title>
                 </circle>
             `;
@@ -1931,6 +2506,7 @@ th.sorted-desc::after {{
             </svg>
             <div class="chart-legend">
                 <span class="legend-item"><span class="legend-dot"></span> Bet added</span>
+                <span class="legend-item"><span class="legend-dot closed-buy-dot"></span> Closed buy</span>
                 <span class="legend-item"><span class="legend-star">&#9733;</span> Profit realized</span>
                 ${{hasLossEvent ? '<span class="legend-item"><span class="legend-loss">&#9650;</span> Loss realized</span>' : ""}}
             </div>
@@ -1971,17 +2547,34 @@ th.sorted-desc::after {{
     function setupTable(table) {{
         const tbody = table.querySelector("tbody");
         const pager = table.closest(".section").querySelector("[data-pagination]");
+        const search = table.closest(".section").querySelector("[data-table-search]");
         if (!tbody || !pager) {{
             return;
         }}
 
         const pageSize = Number(table.dataset.pageSize || 10);
         const state = {{
-            rows: Array.from(tbody.querySelectorAll("tr")),
+            allRows: Array.from(tbody.querySelectorAll("tr")),
+            rows: [],
             page: 1,
             sortColumn: null,
             sortDirection: "asc"
         }};
+
+        function applySearchAndSort() {{
+            const query = (search?.value || "").trim().toLowerCase();
+            state.rows = state.allRows.filter((row) => !query || row.innerText.toLowerCase().includes(query));
+            if (state.sortColumn === null) {{
+                return;
+            }}
+            state.rows.sort((a, b) => {{
+                const aValue = sortValueForCell(a.children[state.sortColumn]);
+                const bValue = sortValueForCell(b.children[state.sortColumn]);
+                if (aValue < bValue) return state.sortDirection === "asc" ? -1 : 1;
+                if (aValue > bValue) return state.sortDirection === "asc" ? 1 : -1;
+                return 0;
+            }});
+        }}
 
         function renderRows() {{
             const totalPages = Math.max(Math.ceil(state.rows.length / pageSize), 1);
@@ -2012,21 +2605,15 @@ th.sorted-desc::after {{
                 }});
                 header.classList.add(direction === "asc" ? "sorted-asc" : "sorted-desc");
 
-                state.rows.sort((a, b) => {{
-                    const aValue = sortValueForCell(a.children[columnIndex]);
-                    const bValue = sortValueForCell(b.children[columnIndex]);
-
-                    if (aValue < bValue) {{
-                        return direction === "asc" ? -1 : 1;
-                    }}
-                    if (aValue > bValue) {{
-                        return direction === "asc" ? 1 : -1;
-                    }}
-                    return 0;
-                }});
-
+                applySearchAndSort();
                 renderRows();
             }});
+        }});
+
+        search?.addEventListener("input", () => {{
+            state.page = 1;
+            applySearchAndSort();
+            renderRows();
         }});
 
         pager.addEventListener("click", (event) => {{
@@ -2039,6 +2626,7 @@ th.sorted-desc::after {{
             renderRows();
         }});
 
+        applySearchAndSort();
         renderRows();
     }}
 

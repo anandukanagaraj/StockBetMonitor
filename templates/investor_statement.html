@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="manage-hero fund-hero investor-statement-hero">
+  <div>
+    <p class="eyebrow">Investor statement · {{ statement.fund.fund.name }}</p>
+    <h1>{{ statement.investor.name }}</h1>
+    <p>Personal investment performance based on units held, cash flows, and the fund’s current NAV.</p>
+  </div>
+  <div class="hero-actions"><a class="button" href="{{ url_for('fund_management.fund_dashboard', fund_id=statement.fund.fund.id) }}">Back to Fund</a></div>
+</section>
+
+<section class="dashboard-summary investor-statement-summary">
+  <article class="summary-card"><span>Current value</span><strong>{{ money(statement.current_value) }}</strong><small>{{ number(statement.investor.units) }} units at NAV {{ money(statement.fund.nav) }}</small></article>
+  <article class="summary-card"><span>Total invested</span><strong>{{ money(statement.invested) }}</strong><small>Funding and opening allocation</small></article>
+  <article class="summary-card"><span>Redeemed</span><strong>{{ money(statement.redeemed) }}</strong><small>Cash paid back to investor</small></article>
+  <article class="summary-card"><span>Net gain / loss</span><strong class="{{ 'negative' if statement.net_gain < 0 else 'positive' }}">{{ money(statement.net_gain) }}</strong><small>{{ '%+.2f'|format(statement.net_return) }}% simple net return</small></article>
+  <article class="summary-card"><span>Fund ownership</span><strong>{{ '%.2f'|format(statement.investor.ownership_pct) }}%</strong><small>Of {{ number(statement.fund.total_units) }} outstanding units</small></article>
+  <article class="summary-card"><span>Estimated charges</span><strong class="negative">{{ money(statement.charges.total) }}</strong><small>Brokerage + estimated capital-gains tax</small></article>
+</section>
+
+<section class="dashboard-grid investor-statement-grid">
+  <article class="management-panel">
+    <div class="panel-head"><div><p class="eyebrow">NAV performance</p><h2>Value Change</h2><p>NAV return measures fund performance; your net gain also includes the timing of your own contributions and redemptions.</p></div></div>
+    <div class="investor-return-grid">
+      <div><span>Since joining{% if statement.joined_date %} · {{ statement.joined_date }}{% endif %}</span><strong class="{{ 'negative' if statement.joined_return is not none and statement.joined_return < 0 else 'positive' }}">{{ '%+.2f'|format(statement.joined_return) if statement.joined_return is not none else '—' }}</strong><small>NAV {{ money(statement.joined_nav) }} → {{ money(statement.fund.nav) }}</small></div>
+      <div><span>Last 30 days</span><strong class="{{ 'negative' if statement.one_month_return is not none and statement.one_month_return < 0 else 'positive' }}">{{ '%+.2f'|format(statement.one_month_return) if statement.one_month_return is not none else '—' }}</strong><small>Fund NAV movement</small></div>
+      <div><span>Year to date</span><strong class="{{ 'negative' if statement.ytd_return is not none and statement.ytd_return < 0 else 'positive' }}">{{ '%+.2f'|format(statement.ytd_return) if statement.ytd_return is not none else '—' }}</strong><small>Fund NAV movement</small></div>
+    </div>
+  </article>
+  <article class="management-panel">
+    <div class="panel-head"><div><p class="eyebrow">Fund activity</p><h2>What Changed in the Fund</h2><p>Automatic stock cash flows for the portfolio assigned to this fund.</p></div></div>
+    <div class="investor-activity-grid">
+      <div><span>Stock purchases</span><strong class="negative">{{ money(statement.activity.stock_purchases) }}</strong><small>{{ statement.activity.purchase_count }} post-inception buys</small></div>
+      <div><span>Stock sale proceeds</span><strong class="positive">{{ money(statement.activity.stock_sales) }}</strong><small>{{ statement.activity.sale_count }} closed stock bets</small></div>
+      <div><span>Fund AUM</span><strong>{{ money(statement.fund.aum) }}</strong><small>Stocks {{ money(statement.fund.assets.market_value) }} + cash {{ money(statement.fund.cash) }}</small></div>
+    </div>
+  </article>
+</section>
+
+<section class="management-panel investor-charge-panel">
+  <div class="panel-head"><div><p class="eyebrow">Approximate tax view</p><h2>Brokerage, STCG &amp; LTCG Estimate</h2><p>Illustrative allocation of closed stock trades after the investor joined. It is not a contract note or tax computation.</p></div></div>
+  <div class="investor-charge-grid">
+    <article><span>Approx. brokerage</span><strong class="negative">{{ money(statement.charges.brokerage) }}</strong><small>0.10% of allocated buy + sell turnover</small></article>
+    <article><span>Estimated STCG tax</span><strong class="negative">{{ money(statement.charges.stcg_tax) }}</strong><small>20% of positive allocated short-term gains</small></article>
+    <article><span>Estimated LTCG tax</span><strong class="negative">{{ money(statement.charges.ltcg_tax) }}</strong><small>12.5% above ₹1.25L annual long-term gain</small></article>
+    <article><span>Allocated closed trades</span><strong>{{ statement.charges.closed_trade_count }}</strong><small>{{ '%.2f'|format(statement.charges.ownership_share * 100) }}% current ownership used for this estimate</small></article>
+  </div>
+  <p class="investor-charge-note"><strong>Important:</strong> This estimate excludes STT, exchange/SEBI/GST charges, cess, surcharge, other income, losses carried forward, and changes in ownership over time. Confirm final tax with your CA or tax adviser.</p>
+</section>
+
+<section class="management-panel investor-statement-panel">
+  <div class="panel-head"><div><p class="eyebrow">Your cash-flow ledger</p><h2>Investment Activity</h2><p>Each transaction records the NAV and units used to calculate your current holding.</p></div></div>
+  <div class="table-wrap"><table class="management-table"><thead><tr><th>Date</th><th>Type</th><th class="number">NAV</th><th class="number">Units</th><th class="number">Amount</th><th>Notes</th></tr></thead><tbody>
+    {% for row in statement.transactions %}<tr><td>{{ row.transaction_date }}</td><td><span class="status {{ 'success' if row.transaction_type in ['ALLOCATION', 'SUBSCRIPTION'] else 'warning' }}">{{ row.transaction_type.replace('_', ' ').title() }}</span></td><td class="number">{{ money(row.nav) if row.nav else '—' }}</td><td class="number">{{ number(row.units) }}</td><td class="number">{{ money(row.amount) }}</td><td>{{ row.notes or '—' }}</td></tr>{% else %}<tr><td colspan="6" class="empty">No investment activity has been recorded.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+
+<section class="management-panel investor-statement-panel">
+  <div class="panel-head"><div><p class="eyebrow">Fund ledger</p><h2>Recent Fund Activity</h2><p>These fund-level events help explain changes to cash, units, and the value of the portfolio.</p></div></div>
+  <div class="table-wrap"><table class="management-table"><thead><tr><th>Date</th><th>Investor</th><th>Type</th><th class="number">NAV</th><th class="number">Units</th><th class="number">Amount</th><th>Notes</th></tr></thead><tbody>
+    {% for row in statement.activity.fund_transactions %}<tr><td>{{ row.transaction_date }}</td><td>{{ row.investor_name or 'Fund cash' }}</td><td><span class="status">{{ row.transaction_type.replace('_', ' ').title() }}</span></td><td class="number">{{ money(row.nav) if row.nav else '—' }}</td><td class="number">{{ number(row.units) }}</td><td class="number">{{ money(row.amount) }}</td><td>{{ row.notes or '—' }}</td></tr>{% else %}<tr><td colspan="7" class="empty">No fund transactions have been recorded.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endblock %}

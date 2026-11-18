@@ -19,21 +19,26 @@
     <strong class="{{ pl_class(dashboard.combined_realized) }}">{{ money(dashboard.combined_realized) }}</strong>
     <small>Stock + option closed outcomes</small>
   </article>
-  <article class="summary-card">
+  <a class="summary-card summary-link" href="{{ url_for('new_position') }}">
     <span>Stock Bets</span>
     <strong>{{ dashboard.stock.total }}</strong>
     <small>{{ dashboard.stock.open }} open · {{ dashboard.stock.closed }} closed</small>
-  </article>
-  <article class="summary-card">
+  </a>
+  <a class="summary-card summary-link" href="{{ url_for('options_dashboard') }}">
     <span>Option Bets</span>
     <strong>{{ dashboard.options.total }}</strong>
     <small>{{ dashboard.options.open }} open · {{ dashboard.options.closed }} closed</small>
-  </article>
-  <article class="summary-card {{ 'danger-card' if dashboard.review.mandatory_sell_review_count else '' }}">
+  </a>
+  <a class="summary-card summary-link {{ 'danger-card' if dashboard.review.mandatory_sell_review_count else '' }}" href="{{ url_for('index_membership') }}">
     <span>Sell Review</span>
     <strong>{{ dashboard.review.mandatory_sell_review_count }}</strong>
     <small>Mandatory review signals</small>
-  </article>
+  </a>
+  <a class="summary-card summary-link" href="{{ url_for('portfolio_analytics') }}">
+    <span>Portfolio Analytics</span>
+    <strong title="{{ money(dashboard.stock.open_capital) }}">{{ compact_money(dashboard.stock.open_capital) }}</strong>
+    <small>Open stock capital · equity curve & allocation</small>
+  </a>
 </section>
 
 <section class="dashboard-grid">
@@ -62,8 +67,8 @@
       </div>
     </div>
     <div class="panel-actions">
-      <a class="button" href="{{ url_for('report_masked') }}">View Stock Report</a>
-      <a class="button" href="{{ url_for('report_targets') }}">Report + Targets</a>
+      <a class="button" href="{{ url_for('report_targets') }}">Live Report</a>
+      <a class="button" href="{{ url_for('report_masked') }}">Published Masked Report</a>
     </div>
   </article>
 

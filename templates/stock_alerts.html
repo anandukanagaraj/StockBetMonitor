@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% set form = form_values if form_values else editing_alert %}
+<section class="manage-hero stock-alert-hero">
+  <div>
+    <p class="eyebrow">Stock Bets</p>
+    <h1>Stock Price Alerts</h1>
+    <p>Create simple price alerts outside portfolio bets. When the price condition is met, the note below becomes the alert message body.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button" href="{{ url_for('new_position') }}">Manage Bets</a>
+    <a class="button" href="{{ url_for('report_targets') }}">Live Report</a>
+  </div>
+</section>
+
+<section class="form-shell stock-alert-form-shell">
+  <form class="position-form stock-alert-form" method="post" action="{{ url_for('edit_stock_alert', alert_id=editing_alert.id) if editing_alert else url_for('manage_stock_alerts') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>
+      Ticker
+      <input name="ticker" required placeholder="Ticker symbol" autocomplete="off" value="{{ form.ticker if form else '' }}">
+    </label>
+    <label>
+      Trigger Price
+      <input name="trigger_price" type="number" step="0.01" min="0.01" max="1000000" required value="{{ form.trigger_price if form and form.trigger_price is not none else '' }}">
+    </label>
+    <label>
+      Alert When
+      {% set selected_direction = (form.direction if form and form.direction else 'ABOVE') %}
+      <select name="direction">
+        {% for value, label in directions.items() %}
+          <option value="{{ value }}" {% if selected_direction == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Send Via
+      {% set selected_channel = (form.channel if form and form.channel else 'BOTH') %}
+      <select name="channel">
+        {% for value, label in channels.items() %}
+          <option value="{{ value }}" {% if selected_channel == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="check-row">
+      {% set active_checked = form.is_active if form else true %}
+      <input name="is_active" type="checkbox" {% if active_checked %}checked{% endif %}>
+      <span>Alert is active</span>
+    </label>
+    {% if editing_alert %}
+      <label class="check-row">
+        <input name="reset_triggered" type="checkbox" checked>
+        <span>Reset trigger status after saving</span>
+      </label>
+    {% endif %}
+    <label class="full">
+      Alert Message / Reason
+      <textarea name="notes" rows="3" placeholder="Example: Review breakout above resistance; consider booking partial profit.">{{ form.notes if form and form.notes else '' }}</textarea>
+      <small>This text will be included in WhatsApp/Telegram when the alert fires.</small>
+    </label>
+    <div class="form-actions full">
+      {% if editing_alert %}
+        <a class="button" href="{{ url_for('manage_stock_alerts') }}">Cancel</a>
+      {% else %}
+        <button class="button" type="reset">Clear</button>
+      {% endif %}
+      <button class="button primary" type="submit">{{ "Update Alert" if editing_alert else "Create Alert" }}</button>
+    </div>
+  </form>
+</section>
+
+<section class="management-panel stock-alert-panel">
+  <div class="panel-head">
+    <div>
+      <h2>Saved Alerts</h2>
+      <p>Alerts send once when the condition is crossed. Edit and reset an alert if you want to use it again.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="management-table management-sortable-table stock-alert-table" data-page-size="10">
+      <thead>
+        <tr>
+          <th data-sort="text">Ticker</th>
+          <th class="number" data-sort="number">Trigger</th>
+          <th data-sort="text">Condition</th>
+          <th data-sort="text">Channel</th>
+          <th class="number" data-sort="number">Last Price</th>
+          <th data-sort="text">Status</th>
+          <th data-sort="text">Message</th>
+          <th class="number">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for alert in alerts %}
+          {% set is_triggered = alert.triggered_at is not none %}
+          <tr>
+            <td data-sort-value="{{ alert.ticker|lower }}"><strong>{{ alert.ticker }}</strong></td>
+            <td class="number" data-sort-value="{{ alert.trigger_price }}">{{ money(alert.trigger_price) }}</td>
+            <td data-sort-value="{{ alert.direction }}">{{ directions.get(alert.direction, alert.direction) }}</td>
+            <td data-sort-value="{{ alert.channel }}">{{ channels.get(alert.channel, alert.channel) }}</td>
+            <td class="number" data-sort-value="{{ alert.last_price if alert.last_price is not none else -1 }}">{{ money(alert.last_price) }}</td>
+            <td data-sort-value="{{ 0 if alert.is_active and not is_triggered else 1 if alert.is_active else 2 }}">
+              {% if is_triggered %}
+                <span class="status success">Triggered</span>
+                <small>{{ alert.triggered_at }}</small>
+              {% elif alert.is_active %}
+                <span class="status">Active</span>
+              {% else %}
+                <span class="status closed">Inactive</span>
+              {% endif %}
+            </td>
+            <td class="stock-alert-note" data-sort-value="{{ alert.notes or '' }}">{{ alert.notes or "-" }}</td>
+            <td class="actions">
+              <a class="button" href="{{ url_for('edit_stock_alert', alert_id=alert.id) }}">Edit</a>
+              <form method="post" action="{{ url_for('delete_stock_alert', alert_id=alert.id) }}" onsubmit="return confirm('Delete stock alert for {{ alert.ticker }}?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="button danger" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="8" class="empty">No stock alerts yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-pagination" data-management-pagination></div>
+</section>
+{% endblock %}

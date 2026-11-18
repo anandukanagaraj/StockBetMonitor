@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="manage-hero fund-hero"><div><p class="eyebrow">Fund Management</p><h1>Manage Funds</h1><p>Create a fund and assign either all live stock groups or one stock group such as SWING.</p></div></section>
+
+<section class="form-shell">
+  <form class="position-form funds-create-form" method="post" action="{{ url_for('fund_management.manage_funds') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Fund name<input name="name" required maxlength="100" placeholder="AK MultiCap Fund"></label>
+    <label>Opening NAV<input name="opening_nav" type="number" min="0.01" step="0.01" value="10" required></label>
+    <label>Fund owner<select name="owner_profile_id" required>{% for investor in owner_profiles %}<option value="{{ investor.id }}">{{ investor.name }}{% if investor.email %} · {{ investor.email }}{% endif %}</option>{% else %}<option value="">Create an investor first</option>{% endfor %}</select></label>
+    <label>Stock portfolio assignment<select name="stock_scope"><option value="ALL">All Stock Groups</option>{% for group in stock_groups %}<option value="{{ group.code }}" {{ 'selected' if group.code == 'SWING' else '' }}>{{ group.name }} ({{ group.code }})</option>{% endfor %}</select></label>
+    <label class="check-row"><input name="is_test_data" type="checkbox"><span>Test fund — safe to delete with all fund records</span></label>
+    <div class="full fund-entry-explainer"><strong>The selected owner receives 100% of the opening fund units.</strong> Every additional investor must contribute funding and receives units at the applicable NAV.</div>
+    <div class="form-actions full"><a class="button" href="{{ url_for('fund_management.manage_investors') }}">Manage Investors</a><button class="button primary" type="submit" {{ 'disabled' if not owner_profiles else '' }}>Create Fund</button></div>
+  </form>
+</section>
+
+<section class="management-panel"><div class="panel-head"><div><p class="eyebrow">Funds</p><h2>Fund Register</h2><p>Deleting a fund permanently deletes its investors, units, transactions and fund baseline. Stock bets themselves are never deleted.</p></div></div><div class="table-wrap"><table class="management-table funds-register-table"><thead><tr><th>Fund</th><th>Assigned stocks</th><th class="number">AUM</th><th class="number">NAV</th><th class="number">Open bets</th><th class="number">Investors</th><th>Actions</th></tr></thead><tbody>
+{% for row in funds %}<tr><td><a class="fund-name-link" href="{{ url_for('fund_management.fund_dashboard', fund_id=row.id) }}"><strong>{{ row.name }}</strong></a>{% if row.is_test_data %}<span class="status warning fund-test-badge">Test</span>{% endif %}</td><td><span class="status">{{ 'All Stock Groups' if row.stock_scope == 'ALL' else row.stock_scope }}</span></td><td class="number">{{ money(row.aum) }}</td><td class="number">{{ money(row.nav) }}</td><td class="number">{{ row.open_bets }}</td><td class="number">{{ row.investor_count }}</td><td class="actions"><a class="button primary fund-action-button" href="{{ url_for('fund_management.edit_fund', fund_id=row.id) }}"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16.5V20h3.5L18.8 8.7l-3.5-3.5L4 16.5Zm17-10.6a1 1 0 0 0 0-1.4l-1.5-1.5a1 1 0 0 0-1.4 0l-1.6 1.6 3.5 3.5L21 5.9Z"/></svg><span>Edit Fund</span></a><form method="post" action="{{ url_for('fund_management.delete_fund', fund_id=row.id) }}" onsubmit="return confirm('Permanently delete {{ row.name|e }} and all of its investor and transaction records? Stock bets will not be deleted.');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger fund-action-button" type="submit"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l1 2h4v2H3V5h4l1-2Zm-2 6h12l-1 12H7L6 9Zm4 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z"/></svg><span>{{ 'Delete Test Data' if row.is_test_data else 'Delete Fund' }}</span></button></form></td></tr>{% else %}<tr><td class="empty" colspan="7">No funds yet. Create your first fund above.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

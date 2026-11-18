@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='funding_report.css') }}">
+<div class="funding-report">
+<section class="manage-hero funding-simulation-hero">
+  <div>
+    <p class="eyebrow">Stock bets · Capital source audit</p>
+    <h1>Capital Recycling / Funding Sustainability</h1>
+    <p>Tests whether exit proceeds can fund future stock bets, and identifies exactly where fresh external capital is still required.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button" href="{{ url_for('historical_portfolio_simulation') }}">Historical Portfolio Simulator</a>
+    <a class="button secondary" href="{{ url_for('new_position') }}">Manage Bets</a>
+  </div>
+</section>
+
+{% if simulation.detail %}
+<section class="funding-simulation-kpis">
+  <article class="summary-card"><span>External Funding Required</span><strong class="negative" title="{{ money(simulation.detail.external_funding) }}">{{ compact_money(simulation.detail.external_funding) }}</strong><small>Fresh money injected to fund every bet</small></article>
+  <article class="summary-card"><span>Recycled Capital Used</span><strong class="positive" title="{{ money(simulation.detail.recycled_deployment) }}">{{ compact_money(simulation.detail.recycled_deployment) }}</strong><small>Exit proceeds redeployed into new bets</small></article>
+  <article class="summary-card"><span>Self-Funded Bets</span><strong class="positive">{{ number(simulation.detail.self_funded_pct) }}%</strong><small>Funded entirely from recycled cash</small></article>
+  <article class="summary-card"><span>Peak Capital Deployed</span><strong title="{{ money(simulation.detail.peak_deployed) }}">{{ compact_money(simulation.detail.peak_deployed) }}</strong><small>Largest concurrent open-stock value</small></article>
+  <article class="summary-card"><span>Capital Locked</span><strong class="{% if simulation.detail.capital_locked %}negative{% endif %}" title="{{ money(simulation.detail.capital_locked) }}">{{ compact_money(simulation.detail.capital_locked) }}</strong><small>Ending value more than 20% underwater</small></article>
+  <article class="summary-card"><span>Funding Trend</span><strong class="{% if simulation.detail.funding_plateau %}positive{% else %}negative{% endif %}">{{ "FLATTENING" if simulation.detail.funding_plateau else "STILL GROWING" }}</strong><small>Fresh funding {{ "plateaus" if simulation.detail.funding_plateau else "continues late in the replay" }}</small></article>
+</section>
+
+<section class="management-panel funding-note">
+  <div class="panel-head">
+    <div><h2>How this simulation funds a bet</h2><p>{{ simulation.rules_note }}</p></div>
+    <span class="historical-simulation-asof">As of {{ simulation.as_of_date }}</span>
+  </div>
+</section>
+
+<section class="management-panel funding-comparison-panel">
+  <div class="panel-head"><div><p class="eyebrow">Same bet sequence · every entry funded</p><h2>Funding Sustainability by Profit Target</h2><p>External funding is the minimum cash injected to take every historical stock bet. Recycled capital is exit cash later redeployed.</p></div></div>
+  <div class="funding-table-widget" data-default-sort="target">
+  <div class="funding-table-tools"><label>Sort metric<select data-sort-metric><option value="target">Target</option><option value="funding">External funding</option><option value="recycled">Recycled capital</option><option value="self">Self-funded %</option><option value="peak">Peak deployed</option><option value="locked">Locked capital</option><option value="bets">Bets taken</option><option value="exits">Target exits</option><option value="hold">Average hold days</option><option value="value">Final value</option><option value="score">Score</option></select></label><label>Rows<select data-page-size><option>10</option><option>25</option><option>50</option></select></label></div>
+  <div class="funding-scroll"><table class="management-table funding-comparison-table">
+    <thead><tr><th><button type="button" data-sort="target">Target <span aria-hidden="true">↕</span></button></th><th class="number"><button type="button" data-sort="funding">Funding <span aria-hidden="true">↕</span></button></th><th class="number"><button type="button" data-sort="self">Self funded <span aria-hidden="true">↕</span></button></th><th class="number"><button type="button" data-sort="peak">Capital at risk <span aria-hidden="true">↕</span></button></th><th class="number"><button type="button" data-sort="bets">Execution <span aria-hidden="true">↕</span></button></th><th class="number"><button type="button" data-sort="value">Outcome <span aria-hidden="true">↕</span></button></th></tr></thead>
+    <tbody>
+      {% for row in simulation.scenarios %}
+      <tr data-entry data-target="{{ row.target_rate if row.target_rate is not none else '' }}" data-funding="{{ row.external_funding }}" data-recycled="{{ row.recycled_deployment }}" data-self="{{ row.self_funded_pct }}" data-peak="{{ row.peak_deployed }}" data-locked="{{ row.capital_locked }}" data-bets="{{ row.bets_taken }}" data-exits="{{ row.target_exits }}" data-hold="{{ row.avg_hold_days if row.avg_hold_days is not none else '' }}" data-value="{{ row.final_value }}" data-score="{{ row.score }}" class="{% if row.target_rate == 0.07 %}is-reference{% endif %}">
+        <td><strong>{{ row.label }}</strong>{% if row.target_rate == 0.07 %}<span class="subtle">Reference target</span>{% endif %}</td>
+        <td class="number"><strong class="negative">{{ compact_money(row.external_funding) }}</strong><span class="subtle positive">{{ compact_money(row.recycled_deployment) }} recycled</span></td>
+        <td class="number"><strong class="positive">{{ number(row.self_funded_pct) }}%</strong><span class="subtle">{{ number(row.funding_mix_pct) }}% deployment recycled</span></td>
+        <td class="number"><strong>{{ compact_money(row.peak_deployed) }}</strong><span class="subtle {% if row.capital_locked %}negative{% endif %}">{{ compact_money(row.capital_locked) }} locked</span></td>
+        <td class="number"><strong>{{ row.bets_taken }} bets · {{ row.target_exits }} exits</strong><span class="subtle">Avg hold {{ number(row.avg_hold_days) if row.avg_hold_days is not none else "-" }} days</span></td>
+        <td class="number"><strong>{{ compact_money(row.final_value) }}</strong><span class="pill {% if row.funding_plateau %}yes{% else %}no{% endif %}">{{ "Funding plateau" if row.funding_plateau else "Funding grows" }}</span><span class="subtle">Score {{ number(row.score) }}/100</span></td>
+      </tr>
+      {% else %}<tr><td colspan="6" class="empty">No eligible stock bets or daily history are available yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div><div class="funding-pager"><span data-page-info aria-live="polite"></span><div><button type="button" data-prev>Previous</button><button type="button" data-next>Next</button></div></div></div>
+</section>
+
+<section class="management-panel funding-ledger-panel">
+  <div class="panel-head funding-ledger-head">
+    <div><p class="eyebrow">Audit trail</p><h2>Capital Recycling Ledger</h2><p>Every buy shows the precise split between fresh external funding and exit proceeds being recycled.</p></div>
+    <form method="get" class="historical-ledger-selector"><label><span>Audit scenario</span><select name="target" onchange="this.form.submit()">{% for row in simulation.scenarios %}<option value="{{ 'none' if row.target_rate is none else (row.target_rate * 100)|int }}" {% if row.label == simulation.detail.label %}selected{% endif %}>{{ row.label }}</option>{% endfor %}</select></label></form>
+  </div>
+  <div class="funding-ledger-summary"><span><b>{{ simulation.detail.label }}</b> scenario</span><span><b>{{ simulation.detail.bets_taken }}</b> bets fully funded</span><span><b>{{ number(simulation.detail.self_funded_pct) }}%</b> fully recycled</span><span><b>{{ compact_money(simulation.detail.external_funding) }}</b> total fresh funding</span></div>
+  <div class="funding-chart-grid">
+    <article class="funding-chart" data-funding-chart='{{ simulation.detail.curve|tojson }}' data-field="external"><h3>Cumulative External Funding</h3><p>Should flatten as recycled exits finance later bets.</p><canvas width="800" height="230"></canvas></article>
+    <article class="funding-chart" data-funding-chart='{{ simulation.detail.curve|tojson }}' data-field="recycled_cash"><h3>Recycled Cash Available</h3><p>Exit proceeds currently free for the next eligible bet.</p><canvas width="800" height="230"></canvas></article>
+    <article class="funding-chart" data-funding-chart='{{ simulation.detail.curve|tojson }}' data-field="value"><h3>Total Portfolio Value</h3><p>Cash plus marked-to-market open positions.</p><canvas width="800" height="230"></canvas></article>
+    <article class="funding-chart" data-funding-chart='{{ simulation.detail.curve|tojson }}' data-field="locked"><h3>Locked Capital</h3><p>Open positions more than 20% below their entry price.</p><canvas width="800" height="230"></canvas></article>
+  </div>
+  <div class="funding-table-widget" data-default-sort="date">
+  <div class="funding-table-tools"><label>Stock / bet<input type="search" data-search placeholder="Search ticker or bet"></label><label>Event<select data-event><option value="">All events</option><option value="Buy">Buys</option><option value="exit">Exits</option></select></label><label>Funding<select data-funding-filter><option value="">All funding</option><option value="fresh">Fresh funding added</option><option value="recycled">Recycled cash used</option></select></label><label>Rows<select data-page-size><option>25</option><option>50</option><option>100</option></select></label></div>
+  <p class="funding-help">Sorting changes display order only; cash balances remain those at the original event. Filters do not change the charts or scenario totals.</p>
+  <div class="funding-scroll"><table class="management-table funding-ledger-table">
+    <thead><tr><th><button type="button" data-sort="date">Date <span aria-hidden="true">↕</span></button></th><th><button type="button" data-sort="stock">Event / Stock <span aria-hidden="true">↕</span></button></th><th class="number"><button type="button" data-sort="before">Cash Before <span aria-hidden="true">↕</span></button></th><th class="number"><button type="button" data-sort="fresh">Funding Source <span aria-hidden="true">↕</span></button></th><th class="number"><button type="button" data-sort="amount">Invested / Exit <span aria-hidden="true">↕</span></button></th><th class="number"><button type="button" data-sort="after">Cash After <span aria-hidden="true">↕</span></button></th><th class="number"><button type="button" data-sort="cumulative">Cumulative Funding <span aria-hidden="true">↕</span></button></th></tr></thead>
+    <tbody>{% for item in simulation.detail.ledger %}<tr data-entry data-date="{{ item.date }}" data-stock="{{ item.ticker }}" data-search="{{ item.ticker }} {{ item.bet_no }}" data-event="{{ item.event }}" data-before="{{ item.cash_before }}" data-fresh="{{ item.external_added }}" data-recycled="{{ item.recycled_used }}" data-amount="{{ -item.invested if item.invested is not none else (item.exit_proceeds if item.exit_proceeds is not none else '') }}" data-after="{{ item.cash_after }}" data-cumulative="{{ item.cumulative_external }}" class="{% if item.event == 'Buy' %}is-buy{% else %}is-exit{% endif %}"><td>{{ item.date }}</td><td><strong>{{ item.event }}</strong><span class="subtle">{{ item.ticker }} · Bet {{ item.bet_no or "-" }}</span></td><td class="number">{{ money(item.cash_before) }}</td><td class="number"><span class="negative">{% if item.external_added %}+{{ money(item.external_added) }} external{% else %}—{% endif %}</span><span class="subtle positive">{% if item.recycled_used %}{{ money(item.recycled_used) }} recycled{% endif %}</span></td><td class="number">{% if item.invested is not none %}<span class="negative">−{{ money(item.invested) }}</span>{% elif item.exit_proceeds is not none %}<span class="positive">+{{ money(item.exit_proceeds) }}</span>{% else %}—{% endif %}</td><td class="number"><strong>{{ money(item.cash_after) }}</strong></td><td class="number"><strong class="negative">{{ money(item.cumulative_external) }}</strong><span class="subtle positive">{{ money(item.cumulative_recycled) }} deployed</span></td></tr>{% else %}<tr><td colspan="7" class="empty">No replay events are available.</td></tr>{% endfor %}</tbody>
+  </table></div><div class="funding-pager"><span data-page-info aria-live="polite"></span><div><button type="button" data-prev>Previous</button><button type="button" data-next>Next</button></div></div></div>
+</section>
+{% else %}<section class="management-panel"><p class="empty">No eligible stock bets or daily history are available yet.</p></section>{% endif %}
+
+</div>
+<script src="{{ url_for('static', filename='funding_report.js') }}" defer></script>
+<script>
+document.querySelectorAll("[data-funding-chart]").forEach((chart) => {
+  const points = JSON.parse(chart.dataset.fundingChart || "[]"), field = chart.dataset.field, canvas = chart.querySelector("canvas");
+  if (!points.length || !canvas) return;
+  const ctx = canvas.getContext("2d"), width = canvas.width, height = canvas.height, pad = { top: 18, right: 16, bottom: 25, left: 54 };
+  const values = points.map((point) => Number(point[field] || 0)), min = Math.min(...values), max = Math.max(...values), range = max - min || 1;
+  const x = (index) => pad.left + index / Math.max(1, values.length - 1) * (width - pad.left - pad.right), y = (value) => pad.top + (1 - (value - min) / range) * (height - pad.top - pad.bottom);
+  ctx.strokeStyle = "#e2e8f0"; for (let index = 0; index < 4; index += 1) { const lineY = pad.top + index / 3 * (height - pad.top - pad.bottom); ctx.beginPath(); ctx.moveTo(pad.left, lineY); ctx.lineTo(width - pad.right, lineY); ctx.stroke(); }
+  ctx.strokeStyle = field === "external" ? "#dc2626" : field === "locked" ? "#d97706" : "#0284c7"; ctx.lineWidth = 2.5; ctx.beginPath(); values.forEach((value, index) => index ? ctx.lineTo(x(index), y(value)) : ctx.moveTo(x(index), y(value))); ctx.stroke();
+  ctx.fillStyle = "#64748b"; ctx.font = "11px Segoe UI, Arial"; ctx.fillText(`₹${max.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`, 2, pad.top + 4); ctx.fillText(points[0].date, pad.left, height - 6); ctx.fillText(points[points.length - 1].date, width - pad.right - 72, height - 6);
+});
+</script>
+{% endblock %}

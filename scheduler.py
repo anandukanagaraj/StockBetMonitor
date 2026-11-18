@@ -1,11 +1,12 @@
 import configparser
 import json
 import logging
-import msvcrt
 import os
+import shutil
 import smtplib
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.message import EmailMessage
@@ -15,21 +16,51 @@ from types import SimpleNamespace
 
 import requests
 
-from db import is_closed, list_positions, update_current_price
+if os.name == "nt":
+    import msvcrt
+
+    fcntl = None
+else:
+    import fcntl
+
+    msvcrt = None
+
+from db import (
+    DEFAULT_STOCK_GROUP_CODE,
+    is_closed,
+    list_positions,
+    list_stock_price_alerts,
+    mark_stock_price_alert_checked,
+    mark_stock_price_alert_triggered,
+    record_stock_booking_simulation_snapshot,
+    record_portfolio_performance_snapshot,
+    update_current_price,
+    get_user_by_username,
+)
+from options_db import list_option_strategies
 from services.date_utils import (
     display_date as display_shared_date,
     normalized_buy_date_map,
     parse_date as parse_shared_date,
     position_identity,
 )
+from services.number_format import format_indian_inr, format_indian_money, format_indian_money_signed
+from services.option_charges import option_strategy_risk_capital
+from services.portfolio_analytics import build_portfolio_analytics
+from services.report_cleanup import cleanup_old_reports, update_report_manifest
+from services.scheduler_health import read_heartbeat, write_heartbeat
 from services.v1_report_generator import ReportGenerator
-from services.yahoo_service import latest_price
+from services.stock_profit_booking_simulator import simulate_stock_profit_booking
+from services.yahoo_service import latest_price, latest_prices
+from user_context import set_current_user_id
 
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.ini"
 STATE_PATH = BASE_DIR / "data" / "scheduler_state.json"
 LOCK_PATH = BASE_DIR / "data" / "scheduler.lock"
+REPORTS_DIR = BASE_DIR / "reports"
+_last_stale_alert_date = None
 
 
 @dataclass
@@ -89,7 +120,10 @@ class SchedulerInstanceLock:
         self.handle = self.path.open("a+")
         self.handle.seek(0)
         try:
-            msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+            if msvcrt:
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             self.handle.close()
             self.handle = None
@@ -109,7 +143,10 @@ class SchedulerInstanceLock:
         try:
             self.handle.seek(0)
             self.handle.truncate()
-            msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+            if msvcrt:
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
             logger.info("Scheduler instance lock released: %s", self.path)
         finally:
             self.handle.close()
@@ -152,8 +189,152 @@ def save_state(state):
     STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
-def open_positions():
-    return [row for row in list_positions() if not is_closed(row)]
+def scheduler_stock_group_codes(config):
+    raw_value = config.get("SCHEDULER", "STOCK_GROUP_CODES", fallback=DEFAULT_STOCK_GROUP_CODE)
+    codes = [
+        item.strip().upper()
+        for item in raw_value.replace(";", ",").split(",")
+        if item.strip()
+    ]
+    return codes or [DEFAULT_STOCK_GROUP_CODE]
+
+
+def scheduler_positions(config):
+    rows = []
+    seen_ids = set()
+    for code in scheduler_stock_group_codes(config):
+        group_rows = list_positions(trade_group_code=code, reportable_only=True)
+        logger.debug("Scheduler stock group loaded: code=%s rows=%s", code, len(group_rows))
+        for row in group_rows:
+            if row["id"] in seen_ids:
+                continue
+            rows.append(row)
+            seen_ids.add(row["id"])
+    logger.info(
+        "Scheduler stock groups enabled: codes=%s positions=%s",
+        ", ".join(scheduler_stock_group_codes(config)),
+        len(rows),
+    )
+    return rows
+
+
+def open_positions(config):
+    return [row for row in scheduler_positions(config) if not is_closed(row)]
+
+
+def price_fetch_workers(config, ticker_count):
+    configured = config.getint("SCHEDULER", "PRICE_FETCH_WORKERS", fallback=8)
+    return max(1, min(configured, 16, ticker_count or 1))
+
+
+def fetch_latest_prices(tickers, config, context="scheduled"):
+    unique_tickers = {}
+    for ticker in tickers:
+        normalized = (ticker or "").strip().upper()
+        if normalized and normalized not in unique_tickers:
+            unique_tickers[normalized] = ticker
+
+    if not unique_tickers:
+        return {}, {}
+
+    prices = latest_prices(unique_tickers.values())
+    unresolved = {
+        normalized: ticker
+        for normalized, ticker in unique_tickers.items()
+        if normalized not in prices
+    }
+    workers = price_fetch_workers(config, len(unresolved))
+    logger.info(
+        "%s quote fetch: unique_tickers=%s bulk_resolved=%s fallback_workers=%s",
+        context,
+        len(unique_tickers),
+        len(prices),
+        workers,
+    )
+    failures = {}
+    if not unresolved:
+        return prices, failures
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="quote") as executor:
+        futures = {
+            executor.submit(latest_price, ticker): normalized
+            for normalized, ticker in unresolved.items()
+        }
+        for future in as_completed(futures):
+            normalized = futures[future]
+            try:
+                prices[normalized] = future.result()
+            except Exception as exc:
+                failures[normalized] = exc
+                logger.error(
+                    "%s quote fetch failed: ticker=%s error=%s",
+                    context,
+                    unresolved[normalized],
+                    exc,
+                )
+
+    logger.info(
+        "%s parallel quote fetch completed: resolved=%s failed=%s",
+        context,
+        len(prices),
+        len(failures),
+    )
+    return prices, failures
+
+
+def refresh_open_position_prices(config, context="scheduled"):
+    rows = open_positions(config)
+    logger.info("%s price refresh started: open_bets=%s", context, len(rows))
+
+    refreshed_rows = []
+    failed_rows = []
+    prices, _failures = fetch_latest_prices(
+        (row["ticker"] for row in rows),
+        config,
+        context=f"{context} price refresh",
+    )
+    for row in rows:
+        ticker = row["ticker"]
+        normalized = (ticker or "").strip().upper()
+        if normalized not in prices:
+            failed_rows.append(row)
+            continue
+        try:
+            price = prices[normalized]
+            update_current_price(row["id"], price)
+            refreshed = dict(row)
+            refreshed["current_price"] = price
+            refreshed_rows.append(refreshed)
+            logger.info(
+                "%s price refresh updated: bet_no=%s ticker=%s price=%s",
+                context,
+                row["bet_no"],
+                ticker,
+                price,
+            )
+        except Exception:
+            failed_rows.append(row)
+            logger.exception("%s price refresh failed: bet_no=%s ticker=%s", context, row["bet_no"], ticker)
+
+    logger.info(
+        "%s price refresh completed: updated=%s failed=%s",
+        context,
+        len(refreshed_rows),
+        len(failed_rows),
+    )
+    return refreshed_rows, failed_rows
+
+
+def record_portfolio_snapshot():
+    positions = list_positions(trade_group_code=None, reportable_only=True)
+    strategies = list_option_strategies(reportable_only=True)
+    analytics = build_portfolio_analytics(positions, strategies, option_strategy_risk_capital)
+    record_portfolio_performance_snapshot(analytics["summary"])
+    logger.info(
+        "Portfolio performance snapshot recorded: total_pl=%s realized_pl=%s unrealized_pl=%s",
+        analytics["summary"]["total_actual_pl"],
+        analytics["summary"]["total_realized_pl"],
+        analytics["summary"]["total_unrealized_pl"],
+    )
 
 
 def evaluate(row):
@@ -173,9 +354,9 @@ def evaluate(row):
 
     if current >= target:
         status = "TARGET HIT"
-    elif remaining_percent <= 2:
+    elif current >= buy and remaining_percent <= 2:
         status = "VERY CLOSE"
-    elif remaining_percent <= 5:
+    elif current >= buy and remaining_percent <= 5:
         status = "NEAR TARGET"
     else:
         status = "HOLD"
@@ -225,37 +406,76 @@ def db_row_to_report_position(row):
     )
 
 
-def generate_report_snapshots():
-    rows = list_positions()
+def generate_report_snapshots(config):
+    rows = scheduler_positions(config)
     positions = [db_row_to_report_position(row) for row in rows]
     generator = ReportGenerator()
     masked_path = generator.generate_html(positions, show_target_price=False)
     target_path = generator.generate_html(positions, show_target_price=True)
+    app_target_path = generator.generate_html(positions, show_target_price=True, include_app_nav=True)
+    update_report_manifest(
+        {
+            "masked": masked_path,
+            "targets": target_path,
+            "app_targets": app_target_path,
+        }
+    )
+    keep_days = config.getint("APP", "REPORT_KEEP_DAYS", fallback=14)
+    cleanup_old_reports(REPORTS_DIR, keep_days=keep_days)
     logger.info(
-        "Report snapshots generated: masked=%s targets=%s positions=%s",
+        "Report snapshots generated: masked=%s targets=%s app_targets=%s positions=%s",
         masked_path,
         target_path,
+        app_target_path,
         len(positions),
     )
     return masked_path, target_path
 
 
+def record_stock_booking_snapshot(rows, snapshot_date):
+    simulation = simulate_stock_profit_booking(rows, today=snapshot_date)
+    snapshot_id = record_stock_booking_simulation_snapshot(
+        simulation["summary"],
+        snapshot_date=snapshot_date.isoformat(),
+    )
+    analytics = simulation["summary"].get("analytics") or {}
+    logger.info(
+        "Stock booking simulation snapshot recorded: id=%s date=%s bets=%s recommended=%s highest_profit=%s",
+        snapshot_id,
+        snapshot_date.isoformat(),
+        simulation["summary"].get("bets"),
+        analytics.get("best_label"),
+        analytics.get("highest_profit_label"),
+    )
+    return snapshot_id
+
+
+def publish_command(message):
+    if os.name == "nt":
+        script_path = BASE_DIR / "publish_report.ps1"
+        command = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script_path), "-Message", message]
+    else:
+        script_path = BASE_DIR / "publish_report.sh"
+        command = [shutil.which("bash") or "/bin/bash", str(script_path), "--message", message]
+    return script_path, command
+
+
+def warn_if_not_ist():
+    offset = datetime.now().astimezone().utcoffset()
+    if offset != timedelta(hours=5, minutes=30):
+        logger.warning(
+            "Local clock is UTC%s, not IST (UTC+05:30). Market hours in config.ini are IST; "
+            "set TZ=Asia/Kolkata for the scheduler process.",
+            datetime.now().astimezone().strftime("%z"),
+        )
+
+
 def publish_masked_report(message):
-    script_path = BASE_DIR / "publish_report.ps1"
+    script_path, command = publish_command(message)
     if not script_path.exists():
         logger.warning("Publish skipped: script not found at %s", script_path)
         return False
 
-    command = [
-        "powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        str(script_path),
-        "-Message",
-        message,
-    ]
     logger.info("Publishing masked report: command=%s", " ".join(command))
     result = subprocess.run(
         command,
@@ -280,40 +500,79 @@ def publish_masked_report(message):
 
 def format_whatsapp_message(result):
     if result.status == "TARGET HIT":
-        title = "TARGET HIT"
-        extra = f"Target    : ₹{result.target_price:.2f}"
+        title = "====================\n   TARGET HIT\n===================="
+        trigger_line = (
+            f"Target: {format_indian_money(result.target_price)}\n"
+            "ACTION: Review and book profit"
+        )
     elif result.status == "STOP LOSS HIT":
         title = "STOP LOSS HIT"
-        extra = f"Stop Loss : ₹{result.stop_loss:.2f}"
+        trigger_line = f"Stop loss: {format_indian_money(result.stop_loss)}"
     elif result.status == "VERY CLOSE":
         title = "VERY CLOSE TO TARGET"
-        extra = f"Target    : ₹{result.target_price:.2f}"
+        trigger_line = (
+            f"Target: {format_indian_money(result.target_price)} · "
+            f"Gap: {format_indian_money(result.remaining)} ({result.remaining_percent:.2f}%)"
+        )
     elif result.status == "NEAR TARGET":
         title = "NEAR TARGET"
-        extra = f"Target    : ₹{result.target_price:.2f}"
+        trigger_line = (
+            f"Target: {format_indian_money(result.target_price)} · "
+            f"Gap: {format_indian_money(result.remaining)} ({result.remaining_percent:.2f}%)"
+        )
     else:
         title = result.status
-        extra = f"Target    : ₹{result.target_price:.2f}"
+        trigger_line = f"Target: {format_indian_money(result.target_price)}"
 
     return (
         f"{title}\n"
-        f"Bet       : {result.bet_no}\n"
-        f"Stock     : {result.ticker}\n"
-        f"Qty       : {result.qty}\n"
-        f"Buy Price : ₹{result.buy_price:.2f}\n"
-        f"Current   : ₹{result.current_price:.2f}\n"
-        f"{extra}\n"
-        f"Remaining : ₹{result.remaining:.2f}\n"
-        f"Distance  : {result.remaining_percent:.2f}%\n"
-        f"P/L       : ₹{result.profit:,.2f}\n"
-        f"P/L %     : {result.profit_percent:.2f}%"
+        f"{result.ticker} · Bet #{result.bet_no}\n\n"
+        f"Current: {format_indian_money(result.current_price)}\n"
+        f"{trigger_line}\n"
+        f"Position: {result.qty:g} @ {format_indian_money(result.buy_price)}\n\n"
+        f"P/L: {format_indian_money_signed(result.profit)} ({result.profit_percent:+.2f}%)"
+    )
+
+
+def format_telegram_message(result):
+    status_styles = {
+        "TARGET HIT": ("🟢", "TARGET HIT", "Review and book profit"),
+        "VERY CLOSE": ("🟡", "VERY CLOSE TO TARGET", "Watch closely"),
+        "NEAR TARGET": ("🟡", "NEAR TARGET", "Target is close"),
+        "STOP LOSS HIT": ("🔴", "STOP LOSS HIT", "Review risk"),
+    }
+    icon, title, action = status_styles.get(result.status, ("🔵", result.status, "Monitor"))
+
+    if result.status == "STOP LOSS HIT":
+        trigger_line = (
+            f"Stop loss: {format_indian_money(result.stop_loss)}"
+            if result.stop_loss is not None
+            else "Stop loss reached"
+        )
+    elif result.status in {"VERY CLOSE", "NEAR TARGET"}:
+        trigger_line = (
+            f"Target: {format_indian_money(result.target_price)} · "
+            f"Gap: {format_indian_money(result.remaining)} ({result.remaining_percent:.2f}%)"
+        )
+    else:
+        trigger_line = f"Target: {format_indian_money(result.target_price)}"
+
+    profit_icon = "🟢" if result.profit >= 0 else "🔴"
+    return (
+        f"{icon} <b>{escape(title)}</b>\n"
+        f"<b>{escape(result.ticker)}</b> · Bet #{result.bet_no}\n\n"
+        f"Current: <b>{format_indian_money(result.current_price)}</b>\n"
+        f"{escape(trigger_line)}\n"
+        f"Position: {result.qty:g} @ {format_indian_money(result.buy_price)}\n\n"
+        f"{profit_icon} P/L: <b>{format_indian_money_signed(result.profit)}</b> ({result.profit_percent:+.2f}%)\n"
+        f"Action: <b>{escape(action)}</b>"
     )
 
 
 def send_whatsapp(config, message):
     if not get_bool(config, "WHATSAPP", "ENABLE_WHATSAPP", False):
         logger.info("WhatsApp disabled. Message preview:\n%s", message)
-        return
+        return False
 
     token = config.get("WHATSAPP", "ACCESS_TOKEN", fallback="").strip()
     phone_number_id = config.get("WHATSAPP", "PHONE_NUMBER_ID", fallback="").strip()
@@ -321,7 +580,7 @@ def send_whatsapp(config, message):
 
     if not token or not phone_number_id or not recipient:
         logger.warning("WhatsApp config missing. Message preview:\n%s", message)
-        return
+        return False
 
     url = f"https://graph.facebook.com/v20.0/{phone_number_id}/messages"
     payload = {
@@ -339,6 +598,43 @@ def send_whatsapp(config, message):
     response = requests.post(url, headers=headers, json=payload, timeout=30)
     logger.info("WhatsApp API response: status=%s body=%s", response.status_code, response.text)
     response.raise_for_status()
+    return True
+
+
+def send_telegram(config, message):
+    if not get_bool(config, "TELEGRAM", "ENABLE_TELEGRAM", False):
+        logger.info("Telegram disabled. Message preview:\n%s", message)
+        return False
+
+    token = config.get("TELEGRAM", "BOT_TOKEN", fallback="").strip()
+    chat_id = config.get("TELEGRAM", "CHAT_ID", fallback="").strip()
+    if not token or not chat_id:
+        logger.warning("Telegram config missing. Message preview:\n%s", message)
+        return False
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+        "disable_notification": False,
+    }
+    for attempt in range(1, 4):
+        try:
+            logger.info("Telegram API call started: chat_id=%s attempt=%s/3", chat_id, attempt)
+            response = requests.post(url, json=payload, timeout=30)
+            logger.info("Telegram API response: status=%s body=%s", response.status_code, response.text)
+            response.raise_for_status()
+            return True
+        except requests.RequestException:
+            if attempt == 3:
+                logger.error("Telegram API failed after %s attempts; scheduler will continue", attempt, exc_info=True)
+                return False
+            delay = 2 ** attempt
+            logger.warning("Telegram API attempt %s failed; retrying in %s seconds", attempt, delay, exc_info=True)
+            time.sleep(delay)
+    return False
 
 
 def send_eod_email(config, subject, body):
@@ -376,30 +672,209 @@ def send_eod_email(config, subject, body):
     return True
 
 
+def send_alert(config, result, message):
+    try:
+        if send_whatsapp(config, message):
+            return {"whatsapp": True, "telegram": False, "email": False}
+    except Exception:
+        logger.exception("WhatsApp send failed; using Telegram and email fallback: bet_no=%s ticker=%s", result.bet_no, result.ticker)
+
+    delivered = {"whatsapp": False, "telegram": False, "email": False}
+    try:
+        telegram_message = format_telegram_message(result)
+        logger.info("TELEGRAM ALERT\n%s", telegram_message)
+        delivered["telegram"] = send_telegram(config, telegram_message)
+    except Exception:
+        logger.exception("Telegram fallback failed: bet_no=%s ticker=%s", result.bet_no, result.ticker)
+
+    try:
+        delivered["email"] = send_eod_email(
+            config,
+            f"Portfolio alert: {result.status} - {result.ticker} (Bet {result.bet_no})",
+            message,
+        )
+    except Exception:
+        logger.exception("Email fallback failed: bet_no=%s ticker=%s", result.bet_no, result.ticker)
+
+    logger.info("Alert fallback completed: bet_no=%s ticker=%s telegram=%s email=%s", result.bet_no, result.ticker, delivered["telegram"], delivered["email"])
+    return delivered
+
+
+def stock_price_alert_triggered(alert, price):
+    direction = (alert.get("direction") or "ABOVE").upper()
+    trigger_price = alert["trigger_price"]
+    if direction == "BELOW":
+        return price <= trigger_price
+    return price >= trigger_price
+
+
+def format_stock_price_alert_message(alert, price):
+    direction = (alert.get("direction") or "ABOVE").upper()
+    direction_text = "at or below" if direction == "BELOW" else "at or above"
+    note = (alert.get("notes") or "").strip()
+    body = note if note else "Price alert condition reached."
+    return (
+        "STOCK PRICE ALERT\n"
+        f"{alert['ticker']}\n\n"
+        f"{body}\n\n"
+        f"Current: {format_indian_inr(price)}\n"
+        f"Alert: {direction_text} {format_indian_inr(alert['trigger_price'])}"
+    )
+
+
+def format_stock_price_alert_telegram_message(alert, price):
+    direction = (alert.get("direction") or "ABOVE").upper()
+    direction_text = "at or below" if direction == "BELOW" else "at or above"
+    note = escape((alert.get("notes") or "").strip() or "Price alert condition reached.")
+    return (
+        "🔔 <b>STOCK PRICE ALERT</b>\n"
+        f"<b>{escape(alert['ticker'])}</b>\n\n"
+        f"{note}\n\n"
+        f"Current: <b>{format_indian_inr(price)}</b>\n"
+        f"Alert: {escape(direction_text)} {format_indian_inr(alert['trigger_price'])}"
+    )
+
+
+def send_stock_price_alert(config, alert, price):
+    channel = (alert.get("channel") or "BOTH").upper()
+    whatsapp_message = format_stock_price_alert_message(alert, price)
+    telegram_message = format_stock_price_alert_telegram_message(alert, price)
+    delivered = {"whatsapp": False, "telegram": False}
+
+    if channel in {"BOTH", "WHATSAPP"}:
+        try:
+            logger.info("STOCK PRICE ALERT WHATSAPP\n%s", whatsapp_message)
+            delivered["whatsapp"] = send_whatsapp(config, whatsapp_message)
+        except Exception:
+            logger.exception("Stock price alert WhatsApp failed: id=%s ticker=%s", alert["id"], alert["ticker"])
+
+    if channel == "TELEGRAM" or (channel == "BOTH" and not delivered["whatsapp"]):
+        try:
+            logger.info("STOCK PRICE ALERT TELEGRAM\n%s", telegram_message)
+            delivered["telegram"] = send_telegram(config, telegram_message)
+        except Exception:
+            logger.exception("Stock price alert Telegram failed: id=%s ticker=%s", alert["id"], alert["ticker"])
+
+    logger.info(
+        "Stock price alert delivery completed: id=%s ticker=%s channel=%s whatsapp=%s telegram=%s",
+        alert["id"],
+        alert["ticker"],
+        channel,
+        delivered["whatsapp"],
+        delivered["telegram"],
+    )
+    return delivered
+
+
+def run_stock_price_alert_check(config, known_prices=None):
+    alerts = [
+        alert
+        for alert in list_stock_price_alerts(active_only=True)
+        if alert.get("triggered_at") is None
+    ]
+    logger.info("Stock price alert check started: active_pending=%s", len(alerts))
+    triggered = 0
+    failed = 0
+    prices = dict(known_prices or {})
+    missing_tickers = [
+        alert["ticker"]
+        for alert in alerts
+        if (alert["ticker"] or "").strip().upper() not in prices
+    ]
+    fetched_prices, _failures = fetch_latest_prices(
+        missing_tickers,
+        config,
+        context="Stock price alerts",
+    )
+    prices.update(fetched_prices)
+    for alert in alerts:
+        try:
+            normalized = (alert["ticker"] or "").strip().upper()
+            if normalized not in prices:
+                failed += 1
+                continue
+            price = prices[normalized]
+            mark_stock_price_alert_checked(alert["id"], price)
+            logger.info(
+                "Stock price alert checked: id=%s ticker=%s current=%s direction=%s trigger=%s",
+                alert["id"],
+                alert["ticker"],
+                price,
+                alert["direction"],
+                alert["trigger_price"],
+            )
+            if not stock_price_alert_triggered(alert, price):
+                continue
+            delivered = send_stock_price_alert(config, alert, price)
+            if delivered["whatsapp"] or delivered["telegram"]:
+                mark_stock_price_alert_triggered(alert["id"], price)
+                triggered += 1
+            else:
+                logger.warning(
+                    "Stock price alert condition met but no channel delivered; keeping pending: id=%s ticker=%s",
+                    alert["id"],
+                    alert["ticker"],
+                )
+        except Exception:
+            failed += 1
+            logger.exception("Stock price alert check failed: id=%s ticker=%s", alert["id"], alert["ticker"])
+
+    logger.info("Stock price alert check completed: triggered=%s failed=%s", triggered, failed)
+    return triggered
+
+
+def maybe_alert_stale_scheduler(config):
+    global _last_stale_alert_date
+    if not is_market_time(config):
+        return
+
+    heartbeat = read_heartbeat()
+    if not heartbeat or not heartbeat.get("last_market_check_at"):
+        return
+
+    interval = config.getint("MARKET", "CHECK_INTERVAL_MINUTES", fallback=30)
+    stale_minutes = config.getint("APP", "SCHEDULER_STALE_MINUTES", fallback=45)
+    threshold = max(stale_minutes, interval * 2 + 5)
+    try:
+        last_check = datetime.fromisoformat(heartbeat["last_market_check_at"])
+    except ValueError:
+        return
+
+    age_minutes = (datetime.now() - last_check).total_seconds() / 60
+    if age_minutes <= threshold:
+        return
+
+    today = datetime.now().date().isoformat()
+    if _last_stale_alert_date == today:
+        return
+
+    message = (
+        "StockMonitor scheduler heartbeat is stale.\n"
+        f"Last market check: {heartbeat['last_market_check_at']}\n"
+        f"Age: {age_minutes:.0f} minutes"
+    )
+    logger.warning("Scheduler stale alert triggered: age_minutes=%.1f threshold=%s", age_minutes, threshold)
+    if send_telegram(config, message):
+        _last_stale_alert_date = today
+
+
 def run_market_check(config):
     logger.info("=" * 60)
     logger.info("Scheduled market check started")
 
-    rows = open_positions()
-    logger.info("Open bets: %s", len(rows))
+    rows, failed_rows = refresh_open_position_prices(config, context="Market check")
+    if failed_rows:
+        logger.warning("Market check price refresh had failures: failed=%s", len(failed_rows))
+    try:
+        record_portfolio_snapshot()
+    except Exception:
+        logger.exception("Portfolio performance snapshot failed")
 
     results = []
     for row in rows:
-        ticker = row["ticker"]
-        logger.info("Fetching price: bet_no=%s ticker=%s", row["bet_no"], ticker)
-        try:
-            price = latest_price(ticker)
-            update_current_price(row["id"], price)
-            logger.info("DB current price updated: bet_no=%s ticker=%s price=%s", row["bet_no"], ticker, price)
-        except Exception:
-            logger.exception("Live price unavailable: bet_no=%s ticker=%s", row["bet_no"], ticker)
-            continue
-
-        refreshed = dict(row)
-        refreshed["current_price"] = price
-        result = evaluate(refreshed)
+        result = evaluate(row)
         if result is None:
-            logger.warning("Alert evaluation skipped: bet_no=%s ticker=%s", row["bet_no"], ticker)
+            logger.warning("Alert evaluation skipped: bet_no=%s ticker=%s", row["bet_no"], row["ticker"])
             continue
 
         results.append(result)
@@ -416,19 +891,45 @@ def run_market_check(config):
 
         if result.status in ("TARGET HIT", "STOP LOSS HIT", "VERY CLOSE", "NEAR TARGET"):
             message = format_whatsapp_message(result)
-            logger.info("WHATSAPP ALERT\n%s", message)
-            try:
-                send_whatsapp(config, message)
-            except Exception:
-                logger.exception("WhatsApp send failed: bet_no=%s ticker=%s", result.bet_no, result.ticker)
+            logger.info("PORTFOLIO ALERT\n%s", message)
+            send_alert(config, result, message)
 
     try:
-        generate_report_snapshots()
+        generate_report_snapshots(config)
     except Exception:
         logger.exception("Report snapshot generation failed")
 
+    try:
+        known_prices = {
+            (row["ticker"] or "").strip().upper(): row["current_price"]
+            for row in rows
+            if row["current_price"] is not None
+        }
+        run_stock_price_alert_check(config, known_prices=known_prices)
+    except Exception:
+        logger.exception("Stock price alert check failed")
+
+    market_check_at = datetime.now().replace(microsecond=0).isoformat()
+    write_heartbeat(status="ok", last_market_check_at=market_check_at)
     logger.info("Scheduled market check completed: evaluated=%s", len(results))
     return results
+
+
+def configured_market_holidays(config):
+    """Return configured exchange holidays as ISO date strings."""
+    raw = config.get("MARKET", "HOLIDAYS", fallback="")
+    return {
+        value.strip()
+        for value in raw.replace("\n", ",").split(",")
+        if value.strip()
+    }
+
+
+def is_trading_day(config, value=None):
+    """True only for weekdays that are not configured exchange holidays."""
+    value = value or datetime.now()
+    day = value.date() if isinstance(value, datetime) else value
+    return day.weekday() < 5 and day.isoformat() not in configured_market_holidays(config)
 
 
 def run_eod_email_if_due(config, force=False):
@@ -439,8 +940,8 @@ def run_eod_email_if_due(config, force=False):
     market_end = parse_hhmm(config.get("MARKET", "END_TIME", fallback="15:30"))
 
     if not force:
-        if now.weekday() >= 5:
-            logger.info("EOD email not due: weekend date=%s", today)
+        if not is_trading_day(config, now):
+            logger.info("EOD email not due: non-trading day date=%s", today)
             return
         if now.time() <= market_end:
             logger.info(
@@ -464,7 +965,15 @@ def run_eod_email_if_due(config, force=False):
 
     logger.info("EOD email due: force=%s date=%s", force, today)
 
-    rows = list_positions()
+    refreshed_rows, failed_rows = refresh_open_position_prices(config, context="EOD")
+    if failed_rows:
+        logger.warning("EOD price refresh had failures; continuing with stored DB prices for failed rows: failed=%s", len(failed_rows))
+    try:
+        record_portfolio_snapshot()
+    except Exception:
+        logger.exception("Portfolio performance snapshot failed")
+
+    rows = scheduler_positions(config)
     open_rows = [row for row in rows if not is_closed(row)]
     closed_rows = [row for row in rows if is_closed(row)]
     open_count = len(open_rows)
@@ -477,6 +986,13 @@ def run_eod_email_if_due(config, force=False):
     open_trades_capital = sum((row["buy_price"] or 0) * (row["qty"] or 0) for row in open_rows)
     realized_return = (realized_profit / open_trades_capital * 100) if open_trades_capital else 0
 
+    today_date = now.date()
+
+    try:
+        record_stock_booking_snapshot(rows, today_date)
+    except Exception:
+        logger.exception("Stock booking simulation snapshot failed")
+
     def parse_date(value):
         return parse_shared_date(value)
 
@@ -485,8 +1001,6 @@ def run_eod_email_if_due(config, force=False):
 
     def safe(value):
         return escape(str(value or "-"))
-
-    today_date = now.date()
 
     normalized_buy_dates = normalized_buy_date_map(rows, today=today_date)
 
@@ -512,7 +1026,7 @@ def run_eod_email_if_due(config, force=False):
     def money(value):
         if value is None:
             return "-"
-        return f"₹{value:,.2f}"
+        return format_indian_money(value)
 
     def pct(value):
         if value is None:
@@ -531,7 +1045,7 @@ def run_eod_email_if_due(config, force=False):
             continue
         remaining = row["target_price"] - row["current_price"]
         remaining_pct = remaining / row["target_price"] * 100
-        if 0 <= remaining_pct <= 5:
+        if row["current_price"] >= row["buy_price"] and remaining_pct <= 5:
             near_targets.append((row, remaining, remaining_pct))
 
     priced_open_rows = [row for row in open_rows if open_profit_pct(row) is not None]
@@ -789,7 +1303,7 @@ def run_eod_email_if_due(config, force=False):
         save_state(state)
         if config.getboolean("PUBLISH", "ENABLE_AFTER_EOD", fallback=True):
             try:
-                generate_report_snapshots()
+                generate_report_snapshots(config)
                 published = publish_masked_report(f"EOD report {today}")
                 if not published:
                     logger.error("EOD publish did not complete successfully")
@@ -797,27 +1311,27 @@ def run_eod_email_if_due(config, force=False):
                 logger.exception("EOD publish failed")
 
 
-def is_market_time(config):
-    now = datetime.now()
-    if now.weekday() >= 5:
+def is_market_time(config, now=None):
+    now = now or datetime.now()
+    if not is_trading_day(config, now):
         return False
     start = parse_hhmm(config.get("MARKET", "START_TIME", fallback="09:15"))
     end = parse_hhmm(config.get("MARKET", "END_TIME", fallback="15:30"))
     return start <= now.time() <= end
 
 
-def next_weekday_at(target_time, now=None):
+def next_trading_day_at(config, target_time, now=None):
     now = now or datetime.now()
     candidate = datetime.combine(now.date(), target_time)
     if candidate <= now:
         candidate += timedelta(days=1)
-    while candidate.weekday() >= 5:
+    while not is_trading_day(config, candidate):
         candidate += timedelta(days=1)
     return candidate
 
 
-def next_scheduler_wakeup(config, next_market_check_at):
-    now = datetime.now()
+def next_scheduler_wakeup(config, next_market_check_at, now=None):
+    now = now or datetime.now()
     start_time = parse_hhmm(config.get("MARKET", "START_TIME", fallback="09:15"))
     end_time = parse_hhmm(config.get("MARKET", "END_TIME", fallback="15:30"))
     report_time = parse_hhmm(config.get("MARKET", "REPORT_TIME", fallback="15:35"))
@@ -826,7 +1340,7 @@ def next_scheduler_wakeup(config, next_market_check_at):
     report_at = datetime.combine(now.date(), report_time)
 
     candidates = []
-    if now.weekday() < 5:
+    if is_trading_day(config, now):
         if now < start_at:
             candidates.append(start_at)
         elif start_at <= now <= end_at and next_market_check_at:
@@ -835,25 +1349,35 @@ def next_scheduler_wakeup(config, next_market_check_at):
         if now < report_at:
             candidates.append(report_at)
 
-    candidates.append(next_weekday_at(start_time, now))
+    candidates.append(next_trading_day_at(config, start_time, now))
 
     next_event = min(candidate for candidate in candidates if candidate > now)
     seconds = max((next_event - now).total_seconds(), 1)
-    # Wake occasionally even when the next event is far away, so config changes are picked up.
-    return min(seconds, 300)
+    # Keep sleeps short so a laptop wake/resume does not leave the scheduler
+    # stuck waiting on yesterday's long timeout.
+    return min(seconds, 60)
 
 
 def run_once(force=False):
+    # Published snapshots remain the administrator's portfolio only; individual
+    # users receive their scoped report through the application.
+    admin = get_user_by_username(os.getenv("ADMIN_USERNAME", "admin"))
+    set_current_user_id(admin["id"] if admin else None)
     config = load_config()
     logger.info("Scheduler run_once force=%s", force)
+    write_heartbeat(status="starting")
+    maybe_alert_stale_scheduler(config)
     if force or is_market_time(config):
         run_market_check(config)
     else:
         logger.info("Outside Indian market hours. Skipping market check.")
+        write_heartbeat(status="idle")
     run_eod_email_if_due(config, force=force)
 
 
 def run_forever():
+    admin = get_user_by_username(os.getenv("ADMIN_USERNAME", "admin"))
+    set_current_user_id(admin["id"] if admin else None)
     config = load_config()
     interval = config.getint("MARKET", "CHECK_INTERVAL_MINUTES", fallback=30)
     next_market_check_at = None
@@ -870,13 +1394,15 @@ def run_forever():
             config = load_config()
             interval = config.getint("MARKET", "CHECK_INTERVAL_MINUTES", fallback=30)
             now = datetime.now()
+            write_heartbeat(status="running")
+            maybe_alert_stale_scheduler(config)
             start = today_at(parse_hhmm(config.get("MARKET", "START_TIME", fallback="09:15")))
             end = today_at(parse_hhmm(config.get("MARKET", "END_TIME", fallback="15:30")))
 
             if next_market_check_at is None or next_market_check_at.date() != now.date():
                 next_market_check_at = start if now < start else now
 
-            if now.weekday() < 5 and start <= now <= end and now >= next_market_check_at:
+            if is_trading_day(config, now) and start <= now <= end and now >= next_market_check_at:
                 logger.info("Market cycle due: scheduled_for=%s", next_market_check_at.strftime("%Y-%m-%d %H:%M:%S"))
                 run_market_check(config)
                 next_market_check_at = datetime.now() + timedelta(minutes=interval)
@@ -884,6 +1410,7 @@ def run_forever():
 
             run_eod_email_if_due(config, force=False)
             sleep_seconds = next_scheduler_wakeup(config, next_market_check_at)
+            write_heartbeat(status="sleeping")
             logger.info("Scheduler sleeping for %.0f seconds", sleep_seconds)
         except Exception:
             logger.exception("Scheduler cycle failed")
@@ -903,6 +1430,7 @@ if __name__ == "__main__":
     if not instance_lock.acquire():
         raise SystemExit("Scheduler is already running. Stop the existing process before starting another one.")
 
+    warn_if_not_ist()
     try:
         if args.once:
             run_once(force=args.force)

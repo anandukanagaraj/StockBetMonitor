@@ -32,7 +32,7 @@ elseif (Test-Path $ConfigPath) {
 }
 
 if (-not (Test-Path $PublicDir)) {
-    $SiblingV2PublicDir = Join-Path (Split-Path -Parent $ProjectRoot) "StockMonitor-V2\public"
+    $SiblingV2PublicDir = Join-Path $ProjectRoot "public"
     if (Test-Path $SiblingV2PublicDir) {
         Write-Warning "Configured public folder not found: $PublicDir"
         Write-Warning "Using existing GitHub Pages folder: $SiblingV2PublicDir"

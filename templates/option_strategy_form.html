@@ -8,6 +8,7 @@
     <p>Select the strategy type and the leg rows will be prepared automatically. Entry Premium is premium paid/received at entry; Exit Premium is premium received/paid at close.</p>
   </div>
   <div class="hero-actions">
+    <a class="button" href="{{ url_for('manage_trade_groups') }}">Manage Trade Groups</a>
     <a class="button" href="{{ url_for('options_dashboard') }}">Options Dashboard</a>
   </div>
 </section>
@@ -17,9 +18,20 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <label>
+      Trade Group
+      <select name="trade_group_id" required data-trade-group>
+        {% for group in trade_groups %}
+          <option value="{{ group.id }}" {% if (strategy and strategy.trade_group_id == group.id) or (not strategy and default_trade_group_id == group.id) %}selected{% endif %}>
+            {{ group.name }} ({{ group.code }}){% if group.group_type == 'PAPER' %} - Paper Trade{% endif %}{% if not group.is_active %} - Archived{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
       Option Bet No
-      <input name="display_bet_no" type="number" value="{{ strategy.bet_no if strategy else next_bet_numbers[strategy_types[0]] }}" readonly data-bet-no-display>
-      <input name="bet_no" type="hidden" value="{{ strategy.bet_no if strategy else next_bet_numbers[strategy_types[0]] }}" data-bet-no-hidden>
+      <input name="display_bet_no" type="number" value="{{ strategy.bet_no if strategy else next_bet_numbers[default_trade_group_id] }}" readonly data-bet-no-display>
+      <input name="bet_no" type="hidden" value="{{ strategy.bet_no if strategy else next_bet_numbers[default_trade_group_id] }}" data-bet-no-hidden>
       <input name="strategy_no" type="hidden" value="{{ strategy.strategy_no if strategy else next_strategy_no }}">
     </label>
 
@@ -53,17 +65,17 @@
     </label>
 
     <label>
+      Stock Move %
+      <input name="stock_move_pct" type="number" step="0.01" min="-100" max="1000" placeholder="Auto from Yahoo" value="{{ strategy.stock_move_pct if strategy and strategy.stock_move_pct is not none else '' }}">
+    </label>
+
+    <label>
       Status
       <select name="status">
         {% for status in statuses %}
           <option value="{{ status }}" {% if strategy and strategy.status == status %}selected{% endif %}>{{ status }}</option>
         {% endfor %}
       </select>
-    </label>
-
-    <label class="check-row">
-      <input name="is_test_data" type="checkbox" {% if strategy and strategy.is_test_data %}checked{% endif %}>
-      <span>Mark this as test data</span>
     </label>
 
     <section class="option-leg-builder full">
@@ -137,6 +149,7 @@
   const rows = document.querySelector("[data-leg-rows]");
   const addButton = document.querySelector("[data-add-leg]");
   const strategySelect = document.querySelector("[data-strategy-type]");
+  const tradeGroupSelect = document.querySelector("[data-trade-group]");
   const legHelp = document.querySelector("[data-leg-help]");
   const betNoDisplay = document.querySelector("[data-bet-no-display]");
   const betNoHidden = document.querySelector("[data-bet-no-hidden]");
@@ -229,12 +242,17 @@
     if (legHelp) {
       legHelp.textContent = `${strategyType} starts with ${config.length} leg${config.length === 1 ? "" : "s"}. You can add custom legs if needed.`;
     }
-    if (betNoDisplay) {
-      betNoDisplay.value = nextBetNumbers[strategyType] || 1;
-    }
-    if (betNoHidden && !isEditMode) {
-      betNoHidden.value = nextBetNumbers[strategyType] || 1;
-    }
+  }
+
+  function updateBetNumberForGroup() {
+    if (!tradeGroupSelect || !betNoDisplay || !betNoHidden) return;
+    const originalGroupId = {{ strategy.trade_group_id|tojson if strategy else 'null' }};
+    const selectedGroupId = Number(tradeGroupSelect.value);
+    const number = isEditMode && selectedGroupId === originalGroupId
+      ? {{ strategy.bet_no|tojson if strategy else 'null' }}
+      : (nextBetNumbers[tradeGroupSelect.value] || 1);
+    betNoDisplay.value = number;
+    betNoHidden.value = number;
   }
 
   addButton.addEventListener("click", () => {
@@ -248,6 +266,10 @@
     }
     rebuildLegsForStrategy(strategySelect.value);
   });
+
+  if (tradeGroupSelect) {
+    tradeGroupSelect.addEventListener("change", updateBetNumberForGroup);
+  }
 
   rows.addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-leg]");

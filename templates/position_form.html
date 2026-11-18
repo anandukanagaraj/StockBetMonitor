@@ -6,21 +6,29 @@
   <div>
     <p class="eyebrow">Bet Management</p>
     <h1>Add and manage portfolio bets</h1>
-    <p>Newly added bets stay here and appear at the top of the list below.</p>
+    <p>New bets are saved into the selected stock group, and the open list below follows the same group.</p>
   </div>
-  <div class="hero-actions">
-    <a class="button" href="{{ url_for('index') }}">View Report</a>
-    <a class="button" href="{{ url_for('report_targets') }}">View Targets</a>
-    <a class="button" href="{{ url_for('export_excel') }}">Export Excel</a>
-  </div>
+  <form method="get" action="{{ url_for('new_position') }}" class="stock-group-switcher page-group-switcher">
+    <label>
+      Stock Group
+      <select name="trade_group_id" onchange="this.form.submit()" data-page-stock-group>
+        {% for group in stock_trade_groups %}
+          <option value="{{ group.id }}" {% if group.id == default_stock_group_id %}selected{% endif %}>
+            {{ group.name }} ({{ group.code }}){% if group.group_type == 'PAPER' %} - Paper Trade{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
 </section>
 
 <section class="form-shell">
   <form class="position-form" method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="trade_group_id" value="{{ form.trade_group_id if form else default_stock_group_id }}" data-stock-trade-group>
     <label>
       Bet No
-      <input name="bet_no" type="number" value="{{ form.bet_no if form else next_bet_no }}" {% if not position %}readonly{% endif %}>
+      <input name="bet_no" type="number" value="{{ form.bet_no if form else next_bet_no }}" readonly data-stock-bet-no>
     </label>
 
     <label>
@@ -40,7 +48,7 @@
 
     <label>
       Buy Price
-      <input name="buy_price" type="number" step="0.01" min="0.01" max="1000000" required value="{{ form.buy_price if form else '' }}">
+      <input name="buy_price" type="number" step="0.01" min="0.01" max="1000000" required value="{{ form.buy_price if form else '' }}" data-buy-price>
     </label>
 
     <label>
@@ -50,7 +58,7 @@
 
     <label>
       Target Price
-      <input name="target_price" type="number" step="0.01" min="0.01" max="1000000" required value="{{ form.target_price if form and form.target_price is not none else '' }}">
+      <input name="target_price" type="number" step="0.01" min="0.01" max="1000000" required value="{{ form.target_price if form and form.target_price is not none else '' }}" data-target-price>
     </label>
 
     <label>
@@ -78,52 +86,54 @@
       </select>
     </label>
 
-    <label class="check-row">
-      <input name="is_test_data" type="checkbox" {% if form and (form.is_test_data == "on" or form.is_test_data == 1 or form.is_test_data == true) %}checked{% endif %}>
-      <span>Mark this as test data</span>
-    </label>
-
     <div class="form-actions full">
-      <a class="button" href="/add-bet">Clear</a>
+      <a class="button" href="{{ url_for('new_position', trade_group_id=default_stock_group_id) }}">Clear</a>
       <button class="button primary" type="submit">Save Bet</button>
     </div>
   </form>
 </section>
 
 <section class="management-panel">
-  <div class="panel-head">
-    <h2>Open Bets</h2>
-    <p>Manage active bets stored in the database. Closed bets remain in the report but are hidden here.</p>
+  <div class="panel-head stock-bets-head">
+    <div>
+      <h2>Open Bets</h2>
+      <p>Showing active bets for {{ selected_stock_group.name if selected_stock_group else "the selected group" }}.</p>
+    </div>
+    <label class="open-bet-search">
+      Search Ticker
+      <input type="search" placeholder="Type ticker name" data-open-bet-search>
+    </label>
   </div>
 
   <div class="table-wrap">
-    <table class="management-table" data-page-size="10">
+    <table class="management-table management-sortable-table" data-page-size="10">
       <thead>
         <tr>
-          <th>Bet</th>
-          <th>Ticker</th>
-          <th>Buy Date</th>
-          <th class="number">Qty</th>
-          <th class="number">Buy</th>
-          <th class="number">Current</th>
-          <th class="number">Target</th>
-          <th>Status</th>
+          <th data-sort="number">Bet</th>
+          <th data-sort="text">Ticker</th>
+          <th data-sort="text">Buy Date</th>
+          <th class="number" data-sort="number">Qty</th>
+          <th class="number" data-sort="number">Buy</th>
+          <th class="number" data-sort="number">Current</th>
+          <th class="number" data-sort="number">Target</th>
+          <th data-sort="number">Status</th>
           <th class="number">Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for row in positions %}
-          <tr>
-            <td>{{ row.bet_no or "-" }}</td>
-            <td><strong>{{ row.ticker }}</strong></td>
-            <td>{{ display_buy_date(row, normalized_dates) }}</td>
-            <td class="number">{{ "{:,.0f}".format(row.qty) }}</td>
-            <td class="number">{{ money(row.buy_price) }}</td>
-            <td class="number">{{ money(row.current_price) }}</td>
-            <td class="number">{{ money(row.target_price) }}</td>
-            <td>
-              <span class="status {{ 'closed' if is_closed_position(row) else '' }}">
-                {{ "Closed" if is_closed_position(row) else row.status }}
+          {% set display_status = management_position_status(row) %}
+          <tr data-ticker="{{ row.ticker|lower }}">
+            <td data-sort-value="{{ row.bet_no if row.bet_no is not none else 0 }}">{{ row.bet_no or "-" }}</td>
+            <td data-sort-value="{{ row.ticker|lower }}"><strong>{{ row.ticker }}</strong></td>
+            <td data-sort-value="{{ row.buy_date or '' }}">{{ display_buy_date(row, normalized_dates) }}</td>
+            <td class="number" data-sort-value="{{ row.qty if row.qty is not none else 0 }}">{{ number(row.qty) }}</td>
+            <td class="number" data-sort-value="{{ row.buy_price if row.buy_price is not none else 0 }}">{{ money(row.buy_price) }}</td>
+            <td class="number" data-sort-value="{{ row.current_price if row.current_price is not none else -999999999 }}">{{ money(row.current_price) }}</td>
+            <td class="number" data-sort-value="{{ row.target_price if row.target_price is not none else -999999999 }}">{{ money(row.target_price) }}</td>
+            <td data-sort-value="{{ display_status.sort }}">
+              <span class="status {{ display_status.class }}">
+                {{ display_status.label }}
               </span>
             </td>
             <td class="actions">
@@ -149,62 +159,65 @@
   <div class="table-pagination" data-management-pagination></div>
 </section>
 
-<section class="management-panel">
-  <div class="panel-head">
-    <h2>Test Bets</h2>
-    <p>Rows marked as test data, plus ticker TEST rows. These are excluded from reports and can be removed regardless of status.</p>
-  </div>
-
-  <div class="table-wrap">
-    <table class="management-table" data-page-size="10">
-      <thead>
-        <tr>
-          <th>Bet</th>
-          <th>Ticker</th>
-          <th>Buy Date</th>
-          <th class="number">Qty</th>
-          <th class="number">Buy</th>
-          <th class="number">Sell</th>
-          <th>Status</th>
-          <th class="number">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in test_positions %}
-          <tr>
-            <td>{{ row.bet_no or "-" }}</td>
-            <td><strong>{{ row.ticker }}</strong></td>
-            <td>{{ display_buy_date(row, normalized_dates) }}</td>
-            <td class="number">{{ "{:,.0f}".format(row.qty) }}</td>
-            <td class="number">{{ money(row.buy_price) }}</td>
-            <td class="number">{{ money(row.sell_price) }}</td>
-            <td>
-              <span class="status {{ 'closed' if is_closed_position(row) else '' }}">
-                {{ "Closed" if is_closed_position(row) else row.status }}
-              </span>
-            </td>
-            <td class="actions">
-              <a class="button" href="{{ url_for('edit_position', position_id=row.id) }}">Edit</a>
-              <form method="post" action="{{ url_for('delete_position_route', position_id=row.id) }}" onsubmit="return confirm('Remove test bet {{ row.bet_no }} - {{ row.ticker }}?');">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="button danger" type="submit">Remove</button>
-              </form>
-            </td>
-          </tr>
-        {% else %}
-          <tr>
-            <td colspan="8" class="empty">No test bets to clean up.</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <div class="table-pagination" data-management-pagination></div>
-</section>
-
 <script>
 (function () {
-  const table = document.querySelector(".management-table");
+  const groupSelect = document.querySelector("[data-stock-trade-group]");
+  const betNoInput = document.querySelector("[data-stock-bet-no]");
+  const nextBetNumbers = {{ next_bet_numbers|default({})|tojson }};
+  const originalGroupId = {{ position.trade_group_id|tojson if position else 'null' }};
+  const originalBetNo = {{ position.bet_no|tojson if position else 'null' }};
+  const isEditMode = Boolean(originalGroupId);
+
+  function updateStockBetNoForGroup() {
+    if (!groupSelect || !betNoInput) {
+      return;
+    }
+    const selectedGroupId = Number(groupSelect.value);
+    const nextNumber = nextBetNumbers[groupSelect.value] || 1;
+    betNoInput.value = isEditMode && selectedGroupId === originalGroupId ? originalBetNo : nextNumber;
+  }
+
+  if (groupSelect) {
+    groupSelect.addEventListener("change", updateStockBetNoForGroup);
+  }
+}());
+</script>
+<script>
+(function () {
+  const buyPriceInput = document.querySelector("[data-buy-price]");
+  const targetPriceInput = document.querySelector("[data-target-price]");
+  if (!buyPriceInput || !targetPriceInput) {
+    return;
+  }
+
+  let lastSuggestedTarget = "";
+
+  function roundToStep(value) {
+    return (Math.round(value * 100) / 100).toFixed(2);
+  }
+
+  function shouldSuggestTarget() {
+    const currentTarget = targetPriceInput.value.trim();
+    return !currentTarget || currentTarget === lastSuggestedTarget;
+  }
+
+  function suggestTargetPrice() {
+    const buyPrice = Number(buyPriceInput.value);
+    if (!Number.isFinite(buyPrice) || buyPrice <= 0 || !shouldSuggestTarget()) {
+      return;
+    }
+    lastSuggestedTarget = roundToStep(buyPrice * 1.26);
+    targetPriceInput.value = lastSuggestedTarget;
+  }
+
+  buyPriceInput.addEventListener("input", suggestTargetPrice);
+  buyPriceInput.addEventListener("change", suggestTargetPrice);
+  suggestTargetPrice();
+}());
+</script>
+<script>
+(function () {
+  const table = document.querySelector(".legacy-management-table");
   const pager = document.querySelector("[data-management-pagination]");
   if (!table || !pager) {
     return;
@@ -238,6 +251,123 @@
   });
 
   render();
+}());
+</script>
+<script>
+(function () {
+  document.querySelectorAll(".management-sortable-table").forEach((table) => {
+    const panel = table.closest(".management-panel");
+    const pager = panel ? panel.querySelector("[data-management-pagination]") : null;
+    const searchInput = panel ? panel.querySelector("[data-open-bet-search]") : null;
+    const tbody = table.querySelector("tbody");
+    if (!tbody || !pager) {
+      return;
+    }
+
+    const allRows = Array.from(tbody.querySelectorAll("tr"));
+    const emptyRow = allRows.find((row) => row.querySelector(".empty"));
+    let rows = allRows.filter((row) => !row.querySelector(".empty"));
+    let sortableRows = [...rows];
+    const pageSize = Number(table.dataset.pageSize || 10);
+    let page = 1;
+    let activeSort = null;
+
+    function cellValue(row, columnIndex, numeric) {
+      const cell = row.children[columnIndex];
+      if (!cell) {
+        return numeric ? 0 : "";
+      }
+      const raw = cell.dataset.sortValue || cell.textContent.trim();
+      if (!numeric) {
+        return raw.toLowerCase();
+      }
+      const value = Number(String(raw).replace(/[^0-9.-]/g, ""));
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function applySearch() {
+      const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
+      rows = allRows.filter((row) => {
+        if (row.querySelector(".empty")) {
+          return false;
+        }
+        return !query || (row.dataset.ticker || "").includes(query);
+      });
+      sortableRows = [...rows];
+      if (activeSort) {
+        sortRows(activeSort.columnIndex, activeSort.numeric, activeSort.direction);
+      }
+    }
+
+    function sortRows(columnIndex, numeric, direction) {
+      sortableRows.sort((leftRow, rightRow) => {
+        const left = cellValue(leftRow, columnIndex, numeric);
+        const right = cellValue(rightRow, columnIndex, numeric);
+        if (left < right) return direction === "asc" ? -1 : 1;
+        if (left > right) return direction === "asc" ? 1 : -1;
+        return 0;
+      });
+      rows = [...sortableRows];
+    }
+
+    function render() {
+      const totalPages = Math.max(Math.ceil(rows.length / pageSize), 1);
+      page = Math.min(Math.max(page, 1), totalPages);
+      const start = (page - 1) * pageSize;
+      tbody.innerHTML = "";
+      if (rows.length) {
+        rows.slice(start, start + pageSize).forEach((row) => tbody.appendChild(row));
+      } else if (emptyRow) {
+        const row = emptyRow.cloneNode(true);
+        row.querySelector(".empty").textContent = searchInput && searchInput.value.trim()
+          ? "No open bets match that ticker."
+          : "No bets have been added yet.";
+        tbody.appendChild(row);
+      }
+      pager.innerHTML = `
+        <span>Page ${page} of ${totalPages} - ${rows.length} bets</span>
+        <button class="button" type="button" data-page="prev" ${page === 1 ? "disabled" : ""}>Prev</button>
+        <button class="button" type="button" data-page="next" ${page === totalPages ? "disabled" : ""}>Next</button>
+      `;
+    }
+
+    table.querySelectorAll("th[data-sort]").forEach((header, columnIndex) => {
+      header.classList.add("sortable-heading");
+      header.addEventListener("click", () => {
+        const direction = header.classList.contains("sorted-asc") ? "desc" : "asc";
+        table.querySelectorAll("th[data-sort]").forEach((item) => {
+          item.classList.remove("sorted-asc", "sorted-desc");
+        });
+        header.classList.add(direction === "asc" ? "sorted-asc" : "sorted-desc");
+
+        const numeric = header.dataset.sort === "number";
+        activeSort = { columnIndex, numeric, direction };
+        sortRows(columnIndex, numeric, direction);
+        page = 1;
+        render();
+      });
+    });
+
+    if (searchInput) {
+      searchInput.addEventListener("input", () => {
+        applySearch();
+        page = 1;
+        render();
+      });
+    }
+
+    pager.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-page]");
+      if (!button) {
+        return;
+      }
+      page += button.dataset.page === "next" ? 1 : -1;
+      render();
+    });
+
+    applySearch();
+    render();
+  });
 }());
 </script>
 {% endblock %}

@@ -3,12 +3,12 @@
 {% block content %}
 <section class="manage-hero options-hero">
   <div>
-    <p class="eyebrow">Option Bet {{ strategy.strategy_no }}</p>
+    <p class="eyebrow">{{ strategy.trade_group_name }} · {{ strategy.trade_group_code }}-{{ "%03d"|format(strategy.bet_no) }}</p>
     <h1>{{ strategy.strategy_type }} · {{ strategy.underlying }}</h1>
     <p>{{ strategy.buy_date }}{% if strategy.sell_date %} to {{ strategy.sell_date }}{% endif %} · {{ strategy.status }}</p>
   </div>
   <div class="hero-actions">
-    <a class="button" href="{{ url_for('options_dashboard') }}">Options Dashboard</a>
+    <a class="button" href="{{ url_for('options_dashboard', trade_group_id=strategy.trade_group_id) }}">Options Dashboard</a>
     <a class="button primary" href="{{ url_for('edit_option_strategy', strategy_id=strategy.id) }}">Edit</a>
     <form method="post" action="{{ url_for('delete_option_strategy_route', strategy_id=strategy.id) }}" onsubmit="return confirm('Remove option strategy {{ strategy.strategy_no }}?');">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -23,8 +23,8 @@
     <strong class="{{ pl_class(strategy.strategy_pl) }}">{{ money(strategy.strategy_pl) }}</strong>
   </article>
   <article>
-    <span>P/L %</span>
-    <strong class="{{ pl_class(strategy.pl_pct) }}">{{ pct(strategy.pl_pct) }}</strong>
+    <span>Return on Risk</span>
+    <strong class="{{ pl_class(display_pl_pct) }}">{{ pct(display_pl_pct) }}</strong>
   </article>
   <article>
     <span>Margin</span>
@@ -32,7 +32,7 @@
   </article>
   <article>
     <span>Max Risk</span>
-    <strong>{{ money(strategy.max_risk) }}</strong>
+    <strong>{{ money(display_max_risk) }}</strong>
   </article>
   <article>
     <span>Max Profit</span>
@@ -47,13 +47,14 @@
 <section class="management-panel">
   <div class="panel-head">
     <h2>What-if Comparison</h2>
-    <p>Actual result versus buying only the long call/put legs, and versus a &#8377;{{ "{:,.0f}".format(long_stock_notional) }} long stock position. Costs are approximate brokerage, STT, exchange charges, SEBI charges, stamp duty, GST, and DP charges where applicable.</p>
+    <p>Actual result versus buying only the long call/put legs, and versus an equivalent stock position sized as lot quantity × strike. Bearish strategies use short stock.</p>
   </div>
   <div class="table-wrap">
     <table class="management-table option-table">
       <thead>
         <tr>
           <th>Scenario</th>
+          <th class="number">Capital</th>
           <th class="number">P/L</th>
           <th class="number">Approx Charges</th>
           <th class="number">Net P/L</th>
@@ -64,6 +65,7 @@
         {% for row in comparison.scenarios %}
           <tr>
             <td><strong>{{ row.label }}</strong>{% if row.label == comparison.best %}<span class="subtle">Best scenario</span>{% endif %}</td>
+            <td class="number">{{ money(row.capital) }}</td>
             <td class="number {{ pl_class(row.pl) }}">{{ money(row.pl) }}</td>
             <td class="number">{{ money(row.charges) }}</td>
             <td class="number {{ pl_class(row.net) }}">{{ money(row.net) }}</td>

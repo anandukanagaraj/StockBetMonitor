@@ -15,5 +15,18 @@ exports/
 
 data/index_membership_snapshot.json
 data/scheduler_state.json
+data/stock_move_failures.json
 data/yfinance_cache/
+data/nse_bhavcopy_cache/
 data/backups/
+
+# Runtime data, caches and DB files (contain portfolio data; never push)
+data/
+
+# GitHub Pages site is its own git repository
+public/
+
+# Test leftovers
+.test-*/
+.codex-pytest-tmp/
+.pytest_cache/

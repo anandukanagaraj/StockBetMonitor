@@ -1,0 +1,429 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="manage-hero historical-simulation-hero">
+  <div>
+    <p class="eyebrow">Stock bets · Day-by-day replay</p>
+    <h1>Historical Portfolio Simulator</h1>
+    <p>Replays every recorded stock bet chronologically with a fixed {{ money(simulation.starting_capital) }} starting capital. A bet is skipped when cash is unavailable.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button" href="{{ url_for('stock_profit_booking_simulation') }}">Target-Hit Simulation</a>
+    <a class="button" href="{{ url_for('new_position') }}">Manage Bets</a>
+  </div>
+</section>
+
+<section class="historical-simulation-kpis">
+  <article class="summary-card">
+    <span>Starting Capital</span>
+    <strong title="{{ money(simulation.starting_capital) }}">{{ compact_money(simulation.starting_capital) }}</strong>
+    <small>Fixed capital per scenario</small>
+  </article>
+  <article class="summary-card">
+    <span>Highest Final Value</span>
+    <strong class="{{ pl_class(simulation.overview.best_final.final_value - simulation.starting_capital) }}" title="{{ money(simulation.overview.best_final.final_value) }}">{{ compact_money(simulation.overview.best_final.final_value) }}</strong>
+    <small>{{ simulation.overview.best_final.label }} target</small>
+  </article>
+  <article class="summary-card">
+    <span>Highest CAGR</span>
+    <strong class="{{ pl_class(simulation.overview.best_cagr.cagr) }}">{{ pct(simulation.overview.best_cagr.cagr) }}</strong>
+    <small>{{ simulation.overview.best_cagr.label }} target</small>
+  </article>
+  <article class="summary-card">
+    <span>Lowest Max Drawdown</span>
+    <strong class="negative">{{ pct(simulation.overview.lowest_drawdown.max_drawdown) }}</strong>
+    <small>{{ simulation.overview.lowest_drawdown.label }} target</small>
+  </article>
+  <article class="summary-card">
+    <span>Bets Tested</span>
+    <strong>{{ simulation.records_analysed }}</strong>
+    <small>Same historical sequence</small>
+  </article>
+  <article class="summary-card">
+    <span>No-Target Skips</span>
+    <strong class="{% if simulation.overview.control.bets_skipped %}negative{% endif %}">{{ simulation.overview.control.bets_skipped }}</strong>
+    <small>Cash unavailable control case</small>
+  </article>
+</section>
+
+<section class="management-panel historical-simulation-note">
+  <div class="panel-head">
+    <div>
+      <h2>Replay rules</h2>
+      <p>{{ simulation.rules_note }}</p>
+    </div>
+    <span class="historical-simulation-asof">As of {{ simulation.as_of_date }}</span>
+  </div>
+  <div class="historical-simulation-meta">
+    <span><strong>{{ simulation.records_analysed }}</strong> bets with replay records</span>
+    <span><strong>{{ money(simulation.starting_capital) }}</strong> starting cash per scenario</span>
+    <span><strong>Original quantities</strong> are used; position sizes are not rescaled.</span>
+  </div>
+  {% if simulation.missing_history %}
+    <p class="historical-simulation-warning">No daily OHLC history was available for: {{ simulation.missing_history|join(", ") }}. Those positions are valued at entry until daily history becomes available.</p>
+  {% endif %}
+</section>
+
+<section class="management-panel historical-simulation-panel">
+  <div class="panel-head">
+    <div>
+      <p class="eyebrow">Capital-constrained outcomes</p>
+      <h2>Profit Target Comparison</h2>
+      <p>Actual replays recorded sell dates and prices. Capital Locked is the ending market value in positions more than 20% below entry.</p>
+    </div>
+  </div>
+  <table class="management-table historical-comparison-table">
+    <thead>
+      <tr>
+        <th>Target</th>
+        <th class="number">Ending Result</th>
+        <th class="number">Risk</th>
+        <th class="number">Execution</th>
+        <th class="number">Exits</th>
+        <th class="number">Liquidity / Locked Capital</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in simulation.scenarios %}
+        <tr class="{% if row.target_rate == 0.07 %}is-reference{% elif row.target_rate == 'actual' %}is-actual{% endif %}">
+          <td>
+            <strong>{{ row.label }}</strong>
+            <span class="subtle">{% if row.target_rate == 'actual' %}Recorded exits{% else %}{{ row.target_exits }} target exits{% endif %}{% if row.ambiguous_days %} · {{ row.ambiguous_days }} ambiguous{% endif %}</span>
+          </td>
+          <td class="number">
+            <strong class="{{ pl_class(row.final_value - simulation.starting_capital) }}">{{ money(row.final_value) }}</strong>
+            <span class="subtle">CAGR {{ pct(row.cagr) if row.cagr is not none else "-" }}</span>
+          </td>
+          <td class="number">
+            <strong class="negative">DD {{ pct(row.max_drawdown) }}</strong>
+            <span class="subtle">Worst {{ pct(row.worst_year) if row.worst_year is not none else "-" }}</span>
+            <span class="subtle">Sharpe {{ number(row.sharpe) if row.sharpe is not none else "-" }} · Sortino {{ number(row.sortino) if row.sortino is not none else "-" }}</span>
+          </td>
+          <td class="number">
+            <strong>{{ row.bets_taken }} taken · <span class="{% if row.bets_skipped %}negative{% endif %}">{{ row.bets_skipped }} skipped</span></strong>
+            <span class="subtle">Avg hold {{ number(row.avg_hold_days) if row.avg_hold_days is not none else "-" }} days</span>
+          </td>
+          <td class="number">
+            <strong class="{% if row.stop_exits %}negative{% endif %}">{{ row.stop_exits }} × −75%</strong>
+            <span class="subtle">{{ row.five_year_exits }} × 5Y exits</span>
+          </td>
+          <td class="number">
+            <strong class="{% if row.capital_locked %}negative{% endif %}">{{ money(row.capital_locked) }}</strong>
+            <span class="subtle">{{ pct(row.locked_pct).replace("+", "") }} locked · {{ pct(row.underwater_over_20_pct).replace("+", "") }} &gt;20% underwater</span>
+            <span class="subtle">{{ pct(row.capital_utilization).replace("+", "") }} utilised · Avg cash {{ money(row.average_cash) }}</span>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="empty">No eligible stock bets or daily history are available yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% if simulation.detail %}
+<section class="management-panel historical-ledger-panel" data-ledger-section>
+  <div class="panel-head historical-ledger-head">
+    <div>
+      <p class="eyebrow">Audit trail</p>
+      <h2>Capital Recycling Ledger</h2>
+      <p>Every event updates the same shared cash balance. This is the step-by-step evidence of compounding and capital reuse.</p>
+    </div>
+    <form method="get" class="historical-ledger-selector" data-ledger-form>
+      <label>
+        <span>Audit scenario</span>
+        <select name="target" data-ledger-scenario>
+          {% for row in simulation.scenarios %}
+            {% set option_value = 'actual' if row.target_rate == 'actual' else 'none' if row.target_rate is none else (row.target_rate * 100)|int %}
+            <option value="{{ option_value }}" {% if row.label == simulation.detail.label %}selected{% endif %}>{{ row.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+  <div class="historical-ledger-summary">
+    <span><b>{{ simulation.detail.label }}</b> scenario</span>
+    <span><b>{{ simulation.detail.bets_taken }}</b> bets funded</span>
+    <span><b>{{ simulation.detail.bets_skipped }}</b> skipped for insufficient cash</span>
+    <span><b>{{ simulation.detail.target_exits }}</b> profit exits</span>
+  </div>
+  <div class="historical-ledger-charts">
+    <div class="historical-ledger-chart" data-historical-chart='{{ simulation.detail.equity_curve|tojson }}' data-series="value">
+      <h3>Portfolio Equity Curve</h3>
+      <p>Cash plus marked-to-market value of every open position.</p>
+      <canvas width="900" height="250" aria-label="Portfolio equity curve"></canvas>
+      <span data-chart-empty>No daily values available.</span>
+    </div>
+    <div class="historical-ledger-chart" data-historical-chart='{{ simulation.detail.equity_curve|tojson }}' data-series="cash">
+      <h3>Available Cash Curve</h3>
+      <p>Capital that was actually free to fund the next eligible bet.</p>
+      <canvas width="900" height="250" aria-label="Available cash curve"></canvas>
+      <span data-chart-empty>No daily cash values available.</span>
+    </div>
+  </div>
+  <div class="historical-ledger-controls" data-ledger-controls>
+    <label class="historical-ledger-search">
+      <span>Find event or stock</span>
+      <input type="search" data-ledger-search placeholder="e.g. ABC or profit exit" autocomplete="off">
+    </label>
+    <label>
+      <span>Show</span>
+      <select data-ledger-event-filter>
+        <option value="all">All events</option>
+        <option value="buy">Buys</option>
+        <option value="exit">Exits</option>
+        <option value="skipped">Skipped</option>
+      </select>
+    </label>
+    <label>
+      <span>Rows</span>
+      <select data-ledger-page-size>
+        <option value="25" selected>25</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </label>
+    <span class="historical-ledger-count" data-ledger-count></span>
+  </div>
+  <table class="management-table historical-ledger-table" data-ledger-table>
+    <thead>
+      <tr>
+        <th data-sort="date" tabindex="0" role="button" aria-sort="ascending">Date</th>
+        <th data-sort="text" tabindex="0" role="button" aria-sort="none">Event / Stock</th>
+        <th class="number" data-sort="number" tabindex="0" role="button" aria-sort="none">Cash Before</th>
+        <th class="number" data-sort="number" tabindex="0" role="button" aria-sort="none">Capital / Proceeds</th>
+        <th class="number" data-sort="number" tabindex="0" role="button" aria-sort="none">Cash After</th>
+        <th class="number" data-sort="number" tabindex="0" role="button" aria-sort="none">Portfolio Value</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in simulation.detail.ledger %}
+        {% set event_type = 'buy' if item.event == 'Buy' else 'skipped' if 'Skipped' in item.event else 'exit' %}
+        <tr class="is-{{ event_type }}" data-ledger-row data-event-type="{{ event_type }}">
+          <td data-sort-value="{{ item.date }}">{{ item.date }}</td>
+          <td data-sort-value="{{ item.event }} {{ item.ticker }}"><strong>{{ item.event }}</strong><span class="subtle">{{ item.ticker }} · Bet {{ item.bet_no or '-' }}</span></td>
+          <td class="number" data-sort-value="{{ item.cash_before }}">{{ money(item.cash_before) }}</td>
+          <td class="number" data-sort-value="{{ item.sale_proceeds if item.sale_proceeds is not none else -(item.capital_used or 0) }}">
+            {% if item.capital_used is not none %}<span class="negative">−{{ money(item.capital_used) }}</span>{% endif %}
+            {% if item.sale_proceeds is not none %}<span class="positive">+{{ money(item.sale_proceeds) }}</span>{% endif %}
+            {% if item.capital_used is none and item.sale_proceeds is none %}−{% endif %}
+          </td>
+          <td class="number" data-sort-value="{{ item.cash_after }}"><strong>{{ money(item.cash_after) }}</strong></td>
+          <td class="number" data-sort-value="{{ item.portfolio_value }}">{{ money(item.portfolio_value) }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="empty">No replay events are available for this scenario.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="table-pagination historical-ledger-pagination" data-ledger-pagination></div>
+</section>
+{% endif %}
+
+<section class="dashboard-grid historical-simulation-bottom-grid">
+  <article class="management-panel historical-efficiency-panel">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">Capital efficiency</p>
+        <h2>Average Cash Available</h2>
+        <p>Percentage of the ₹10L starting capital kept available for new historical bets.</p>
+      </div>
+    </div>
+    <div class="historical-efficiency-bars">
+      {% for row in simulation.scenarios %}
+        <div class="historical-efficiency-row {% if row.target_rate == 0.07 %}is-reference{% endif %}">
+          <strong>{{ row.label }}</strong>
+          <div class="historical-efficiency-track" aria-hidden="true"><span style="width: {{ row.average_cash_pct }}%;"></span></div>
+          <span>{{ pct(row.average_cash_pct).replace("+", "") }} free</span>
+        </div>
+      {% endfor %}
+    </div>
+  </article>
+
+  <article class="management-panel historical-rules-panel">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">Method</p>
+        <h2>Daily Event Order</h2>
+        <p>The same order is applied to every target scenario.</p>
+      </div>
+    </div>
+    <ol class="historical-rules-list">
+      <li><b>Update open positions</b><span>Read each position’s daily OHLC bar.</span></li>
+      <li><b>Apply hard exits</b><span>Use the intraday −75% low and the five-year exit first.</span></li>
+      <li><b>Apply profit target</b><span>Use the daily High for an intraday target touch.</span></li>
+      <li><b>Recycle proceeds</b><span>Sale proceeds return to cash before new entries.</span></li>
+      <li><b>Process new bets</b><span>Record a skipped bet when the original position cost exceeds cash.</span></li>
+    </ol>
+  </article>
+</section>
+
+<section class="management-panel historical-interpretation-panel">
+  <div class="panel-head">
+    <div>
+      <p class="eyebrow">Interpretation</p>
+      <h2>Read the Portfolio Outcome, Not Just Hit Rate</h2>
+    </div>
+  </div>
+  <div class="historical-interpretation-grid">
+    <article><strong>Final portfolio value</strong><span>Measures wealth after each simulated sale proceeds are recycled into later bets.</span></article>
+    <article><strong>CAGR and drawdown</strong><span>Show annualized efficiency and the cost of the worst peak-to-trough decline.</span></article>
+    <article><strong>Capital locked</strong><span>Shows money still tied up in positions more than 20% underwater at the end.</span></article>
+    <article><strong>Skipped bets</strong><span>Shows opportunities the strategy could not take because cash was already committed.</span></article>
+  </div>
+</section>
+
+<script>
+const renderHistoricalCharts = (root = document) => {
+  root.querySelectorAll("[data-historical-chart]").forEach((chart) => {
+    const points = JSON.parse(chart.dataset.historicalChart || "[]");
+    const field = chart.dataset.series;
+    const canvas = chart.querySelector("canvas");
+    const empty = chart.querySelector("[data-chart-empty]");
+    if (!points.length || !canvas) return;
+    empty.hidden = true;
+    const context = canvas.getContext("2d");
+    const width = canvas.width;
+    const height = canvas.height;
+    const pad = { top: 18, right: 18, bottom: 28, left: 58 };
+    const values = points.map((point) => Number(point[field] || 0));
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+    const x = (index) => pad.left + index / Math.max(1, points.length - 1) * (width - pad.left - pad.right);
+    const y = (value) => pad.top + (1 - (value - min) / range) * (height - pad.top - pad.bottom);
+    context.clearRect(0, 0, width, height);
+    context.strokeStyle = "#e2e8f0";
+    context.lineWidth = 1;
+    for (let index = 0; index < 4; index += 1) {
+      const lineY = pad.top + index / 3 * (height - pad.top - pad.bottom);
+      context.beginPath(); context.moveTo(pad.left, lineY); context.lineTo(width - pad.right, lineY); context.stroke();
+    }
+    context.strokeStyle = field === "cash" ? "#059669" : "#0284c7";
+    context.lineWidth = 2.5;
+    context.beginPath();
+    values.forEach((value, index) => index ? context.lineTo(x(index), y(value)) : context.moveTo(x(index), y(value)));
+    context.stroke();
+    context.fillStyle = "#64748b";
+    context.font = "11px Segoe UI, Arial";
+    context.fillText(`₹${max.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`, 2, pad.top + 4);
+    context.fillText(`₹${min.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`, 2, height - pad.bottom);
+    context.fillText(points[0].date, pad.left, height - 7);
+    context.fillText(points[points.length - 1].date, Math.max(pad.left, width - pad.right - 72), height - 7);
+  });
+};
+window.renderHistoricalCharts = renderHistoricalCharts;
+renderHistoricalCharts();
+
+const initializeHistoricalLedger = (root = document) => {
+  const section = root.matches?.("[data-ledger-section]") ? root : root.querySelector("[data-ledger-section]");
+  const table = section?.querySelector("[data-ledger-table]");
+  if (!table) return;
+
+  const body = table.tBodies[0];
+  const rows = Array.from(body.querySelectorAll("[data-ledger-row]"));
+  const headers = Array.from(table.querySelectorAll("th[data-sort]"));
+  const search = section.querySelector("[data-ledger-search]");
+  const eventFilter = section.querySelector("[data-ledger-event-filter]");
+  const pageSizeInput = section.querySelector("[data-ledger-page-size]");
+  const count = section.querySelector("[data-ledger-count]");
+  const pagination = section.querySelector("[data-ledger-pagination]");
+  const form = section.querySelector("[data-ledger-form]");
+  const scenario = section.querySelector("[data-ledger-scenario]");
+  let sortIndex = 0;
+  let ascending = true;
+  let page = 1;
+
+  const sortValue = (row, index) => row.cells[index].dataset.sortValue || row.cells[index].textContent.trim();
+  const filteredRows = () => {
+    const query = (search?.value || "").trim().toLowerCase();
+    const eventType = eventFilter?.value || "all";
+    return rows.filter((row) => {
+      const matchesText = !query || row.textContent.toLowerCase().includes(query);
+      return matchesText && (eventType === "all" || row.dataset.eventType === eventType);
+    }).sort((left, right) => {
+      const type = headers[sortIndex].dataset.sort;
+      let comparison;
+      if (type === "number") {
+        comparison = Number(sortValue(left, sortIndex)) - Number(sortValue(right, sortIndex));
+      } else {
+        comparison = sortValue(left, sortIndex).localeCompare(sortValue(right, sortIndex));
+      }
+      return ascending ? comparison : -comparison;
+    });
+  };
+
+  const render = () => {
+    const matches = filteredRows();
+    const pageSize = Number(pageSizeInput?.value || 25);
+    const pageCount = Math.max(1, Math.ceil(matches.length / pageSize));
+    page = Math.min(page, pageCount);
+    rows.forEach((row) => { row.hidden = true; });
+    matches.slice((page - 1) * pageSize, page * pageSize).forEach((row) => {
+      row.hidden = false;
+      body.appendChild(row);
+    });
+    if (count) count.textContent = `${matches.length} of ${rows.length} events`;
+    if (pagination) {
+      pagination.replaceChildren();
+      const label = document.createElement("span");
+      label.textContent = `Page ${page} of ${pageCount}`;
+      const previous = document.createElement("button");
+      previous.type = "button";
+      previous.className = "button secondary";
+      previous.textContent = "Previous";
+      previous.disabled = page === 1;
+      previous.addEventListener("click", () => { page -= 1; render(); });
+      const next = document.createElement("button");
+      next.type = "button";
+      next.className = "button secondary";
+      next.textContent = "Next";
+      next.disabled = page === pageCount;
+      next.addEventListener("click", () => { page += 1; render(); });
+      pagination.append(label, previous, next);
+    }
+  };
+
+  headers.forEach((header, index) => {
+    const activate = () => {
+      ascending = sortIndex === index ? !ascending : true;
+      sortIndex = index;
+      headers.forEach((item, itemIndex) => item.setAttribute("aria-sort", itemIndex === sortIndex ? (ascending ? "ascending" : "descending") : "none"));
+      page = 1;
+      render();
+    };
+    header.addEventListener("click", activate);
+    header.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); }
+    });
+  });
+  [search, eventFilter, pageSizeInput].filter(Boolean).forEach((input) => input.addEventListener("input", () => { page = 1; render(); }));
+  eventFilter?.addEventListener("change", () => { page = 1; render(); });
+  pageSizeInput?.addEventListener("change", () => { page = 1; render(); });
+  form?.addEventListener("submit", (event) => event.preventDefault());
+  scenario?.addEventListener("change", async () => {
+    const requestUrl = new URL(form.action || window.location.href, window.location.href);
+    requestUrl.searchParams.set("target", scenario.value);
+    section.classList.add("is-loading");
+    scenario.disabled = true;
+    try {
+      const response = await fetch(requestUrl, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      if (!response.ok) throw new Error("Could not load the selected scenario.");
+      const documentResponse = new DOMParser().parseFromString(await response.text(), "text/html");
+      const replacement = documentResponse.querySelector("[data-ledger-section]");
+      if (!replacement) throw new Error("The updated ledger was not returned.");
+      section.replaceWith(replacement);
+      window.history.replaceState({}, "", requestUrl);
+      window.renderHistoricalCharts(replacement);
+      initializeHistoricalLedger(replacement);
+    } catch (error) {
+      scenario.disabled = false;
+      section.classList.remove("is-loading");
+      window.alert("Could not refresh this audit scenario. Please try again.");
+    }
+  });
+  render();
+};
+window.initializeHistoricalLedger = initializeHistoricalLedger;
+initializeHistoricalLedger();
+</script>
+{% endblock %}

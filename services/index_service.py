@@ -21,17 +21,18 @@ NSE_HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Accept": "text/csv,application/json,text/plain,*/*",
     "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.niftyindices.com/indices/equity/broad-based-indices",
 }
 
 INDEX_DEFINITIONS = [
-    ("NIFTY 50", "https://archives.nseindia.com/content/indices/ind_nifty50list.csv"),
-    ("NIFTY NEXT 50", "https://archives.nseindia.com/content/indices/ind_niftynext50list.csv"),
-    ("NIFTY 100", "https://archives.nseindia.com/content/indices/ind_nifty100list.csv"),
-    ("NIFTY 200", "https://archives.nseindia.com/content/indices/ind_nifty200list.csv"),
-    ("NIFTY 500", "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"),
-    ("NIFTY MIDCAP 50", "https://archives.nseindia.com/content/indices/ind_niftymidcap50list.csv"),
-    ("NIFTY MIDCAP 100", "https://archives.nseindia.com/content/indices/ind_niftymidcap100list.csv"),
-    ("NIFTY SMALLCAP 100", "https://archives.nseindia.com/content/indices/ind_niftysmallcap100list.csv"),
+    ("NIFTY 50", "https://www.niftyindices.com/IndexConstituent/ind_nifty50list.csv"),
+    ("NIFTY NEXT 50", "https://www.niftyindices.com/IndexConstituent/ind_niftynext50list.csv"),
+    ("NIFTY 100", "https://www.niftyindices.com/IndexConstituent/ind_nifty100list.csv"),
+    ("NIFTY 200", "https://www.niftyindices.com/IndexConstituent/ind_nifty200list.csv"),
+    ("NIFTY 500", "https://www.niftyindices.com/IndexConstituent/ind_nifty500list.csv"),
+    ("NIFTY MIDCAP 50", "https://www.niftyindices.com/IndexConstituent/ind_niftymidcap50list.csv"),
+    ("NIFTY MIDCAP 100", "https://www.niftyindices.com/IndexConstituent/ind_niftymidcap100list.csv"),
+    ("NIFTY SMALLCAP 100", "https://www.niftyindices.com/IndexConstituent/ind_niftysmallcap100list.csv"),
 ]
 
 INDEX_PRIORITY = {
@@ -381,6 +382,60 @@ def fetch_index_statuses(ttl_seconds=300):
     return statuses, errors
 
 
+def build_dashboard_review_summary(open_rows, all_rows=None):
+    if _membership_cache["data"] and _membership_cache["expires_at"] > time.time():
+        memberships_by_symbol = _membership_cache["data"]
+    else:
+        memberships_by_symbol = load_previous_snapshot().get("memberships", {})
+        if not memberships_by_symbol:
+            memberships_by_symbol, _ = fetch_index_memberships()
+
+    previous_snapshot = load_previous_snapshot()
+    previous_memberships = previous_snapshot.get("memberships", {})
+    as_of = time.strftime("%d %b %Y")
+    all_rows = list(all_rows or open_rows)
+    normalized_dates = normalized_buy_date_map(all_rows)
+    avg_hold_days = avg_winning_hold_days(all_rows, normalized_dates)
+    today = date.today()
+
+    rows = []
+    for row in open_rows:
+        symbol = symbol_for_ticker(row["ticker"])
+        memberships = sort_memberships(memberships_by_symbol.get(symbol, []))
+        membership_signal = (
+            status_for_symbol(symbol, memberships, previous_memberships, as_of)
+            if memberships_by_symbol
+            else {
+                "label": "Cached membership unavailable",
+                "class": "none",
+                "rank": 6,
+                "effective_date": "-",
+            }
+        )
+        hold_status = hold_status_for_row(row, normalized_dates, avg_hold_days, today)
+        price_status = price_drawdown_status(row)
+        sell_review = sell_review_status(row, membership_signal, hold_status, price_status)
+        rows.append(
+            {
+                "hold_status": hold_status,
+                "membership_signal": membership_signal,
+                "price_status": price_status,
+                "sell_review": sell_review,
+            }
+        )
+
+    return {
+        "mandatory_sell_review_count": len([row for row in rows if row["sell_review"]["class"] == "mandatory"]),
+        "deep_drawdown_count": len([row for row in rows if row["price_status"]["class"] == "red"]),
+        "above_avg_hold_count": len([row for row in rows if row["hold_status"]["class"] == "red"]),
+        "five_year_hold_count": len([row for row in rows if (row["hold_status"].get("open_days") or 0) >= 365 * 5]),
+        "degraded_membership_count": len(
+            [row for row in rows if row["membership_signal"]["class"] in {"downgraded", "removed"}]
+        ),
+        "promoted_membership_count": len([row for row in rows if row["membership_signal"]["class"] == "promoted"]),
+    }
+
+
 def build_index_membership_report(open_rows, all_rows=None):
     memberships_by_symbol, membership_errors = fetch_index_memberships()
     statuses_by_index, status_errors = fetch_index_statuses()
@@ -435,6 +490,10 @@ def build_index_membership_report(open_rows, all_rows=None):
             "price_status": price_status,
             "sell_review": sell_review,
         })
+
+    # Keep mandatory review candidates at the top of the initial paginated view.
+    # Python's stable sort preserves the existing order within each group.
+    rows.sort(key=lambda item: item["sell_review"]["class"] != "mandatory")
 
     index_cards = [
         statuses_by_index.get(index_name) or {

@@ -7,14 +7,14 @@
 Open PowerShell:
 
 ```powershell
-cd "C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V3"
+cd "C:\Anand\VSS_Workspace\StockMonitor-V3"
 .\start_app.cmd
 ```
 
 Or run Python directly:
 
 ```powershell
-cd "C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V3"
+cd "C:\Anand\VSS_Workspace\StockMonitor-V3"
 & ".\.venv\Scripts\python.exe" app.py
 ```
 
@@ -228,7 +228,7 @@ The scheduler handles:
 Run continuously:
 
 ```powershell
-cd "C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V3"
+cd "C:\Anand\VSS_Workspace\StockMonitor-V3"
 & ".\.venv\Scripts\python.exe" scheduler.py
 ```
 
@@ -251,7 +251,7 @@ Use `--force` when testing outside market hours.
 Run PowerShell:
 
 ```powershell
-cd "C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V3"
+cd "C:\Anand\VSS_Workspace\StockMonitor-V3"
 .\install_scheduler_task.ps1
 ```
 
@@ -299,6 +299,17 @@ REPORT_TIME=15:35
 CHECK_INTERVAL_MINUTES=30
 ```
 
+Scheduler scope:
+
+```ini
+[SCHEDULER]
+STOCK_GROUP_CODES=SWING
+```
+
+Only the stock groups listed here are used for scheduled price updates, alerts,
+EOD email, generated stock reports, and publishing. For now this should stay as
+`SWING`.
+
 Email section:
 
 ```ini
@@ -326,7 +337,7 @@ Publishing section:
 ```ini
 [PUBLISH]
 ENABLE_AFTER_EOD=YES
-PUBLIC_DIR=C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V2\public
+PUBLIC_DIR=C:\Anand\VSS_Workspace\Whatsapp Alerts\StockMonitor-V2\public
 ```
 
 Keep real secrets local.
@@ -374,7 +385,7 @@ The publish script copies the latest V3 masked report into the GitHub Pages repo
 
 ```ini
 [PUBLISH]
-PUBLIC_DIR=C:\Users\anand\OneDrive\Documents\Whatsapp Alerts\StockMonitor-V2\public
+PUBLIC_DIR=C:\Anand\VSS_Workspace\Whatsapp Alerts\StockMonitor-V2\public
 ```
 
 Generate a report first by opening:
