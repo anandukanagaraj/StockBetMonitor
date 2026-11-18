@@ -1,0 +1,18 @@
+services:
+  stockmonitor:
+    build: .
+    image: stockmonitor-v3:latest
+    container_name: stockmonitor
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${HOST_PORT:-5002}:5002"
+    volumes:
+      - ./config.ini:/app/config.ini:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./exports:/app/exports
+      # Uncomment to let the scheduler publish to GitHub Pages
+      # (needs a clone of the Pages repo with push credentials):
+      # - ./public:/app/public

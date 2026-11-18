@@ -1,0 +1,19 @@
+# Secrets and runtime data are mounted at run time, never baked into the image.
+config.ini
+.env
+data/
+logs/
+reports/
+exports/
+public/
+backups/
+
+# Local tooling and leftovers
+.git/
+.venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.codex-pytest-tmp/
+.test-*/
+.claude/

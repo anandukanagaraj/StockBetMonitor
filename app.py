@@ -77,6 +77,12 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true",
 )
+if os.getenv("TRUST_PROXY", "false").strip().lower() == "true":
+    # Behind one reverse proxy (nginx/Caddy/Traefik): trust its X-Forwarded-* headers
+    # so request.remote_addr, https redirects and url_for use the real client values.
+    from werkzeug.middleware.proxy_fix import ProxyFix
+
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 init_db()
 init_options_db()
 
