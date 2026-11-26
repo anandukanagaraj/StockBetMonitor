@@ -6,6 +6,7 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 
 from db import connect, is_closed, list_positions
 from services.date_utils import parse_date
+from services.date_utils import parse_date
 from services.number_format import format_indian_decimal, format_indian_money
 from services.yahoo_service import nifty50_history
 
@@ -126,6 +127,23 @@ def init_fund_db():
             connection.execute("ALTER TABLE fund_investors ADD COLUMN is_test_data INTEGER NOT NULL DEFAULT 0")
         if "profile_id" not in investor_columns:
             connection.execute("ALTER TABLE fund_investors ADD COLUMN profile_id INTEGER")
+        baseline_columns = {row["name"] for row in connection.execute("PRAGMA table_info(fund_position_baselines)").fetchall()}
+        for column, kind in (("ticker", "TEXT"), ("buy_date", "TEXT"), ("qty", "REAL"), ("buy_price", "REAL")):
+            if column not in baseline_columns:
+                connection.execute(f"ALTER TABLE fund_position_baselines ADD COLUMN {column} {kind}")
+        # Remember what each baseline holding was, so it stays a baseline even if
+        # the bet is deleted and re-entered (new id) or re-imported.
+        connection.execute(
+            """UPDATE fund_position_baselines
+               SET ticker = (SELECT UPPER(TRIM(p.ticker)) FROM positions p WHERE p.id = fund_position_baselines.position_id),
+                   buy_date = (SELECT p.buy_date FROM positions p WHERE p.id = fund_position_baselines.position_id),
+                   qty = (SELECT p.qty FROM positions p WHERE p.id = fund_position_baselines.position_id),
+                   buy_price = (SELECT p.buy_price FROM positions p WHERE p.id = fund_position_baselines.position_id)
+               WHERE ticker IS NULL"""
+        )
+        snapshot_columns = {row["name"] for row in connection.execute("PRAGMA table_info(fund_nav_snapshots)").fetchall()}
+        if "source" not in snapshot_columns:
+            connection.execute("ALTER TABLE fund_nav_snapshots ADD COLUMN source TEXT NOT NULL DEFAULT 'live'")
         fund_columns = {row["name"] for row in connection.execute("PRAGMA table_info(funds)").fetchall()}
         if "is_test_data" not in fund_columns:
             connection.execute("ALTER TABLE funds ADD COLUMN is_test_data INTEGER NOT NULL DEFAULT 0")
@@ -191,7 +209,11 @@ def _stock_assets(fund):
     open_rows = [row for row in positions if not is_closed(row)]
     market_value = sum((row["current_price"] if row["current_price"] is not None else row["buy_price"]) * row["qty"] for row in open_rows)
     cost_value = sum(row["buy_price"] * row["qty"] for row in open_rows)
-    return {"market_value": market_value, "cost_value": cost_value, "open_bets": len(open_rows), "positions": positions}
+    # Holdings with no current price are valued at cost; list them so the NAV
+    # isn't quietly based on stale numbers.
+    unpriced = sorted({(row["ticker"] or "").strip().upper() for row in open_rows if row["current_price"] is None})
+    return {"market_value": market_value, "cost_value": cost_value, "open_bets": len(open_rows),
+            "positions": positions, "unpriced_tickers": unpriced}
 
 
 def _get_fund(user_id, fund_id):
@@ -208,8 +230,10 @@ def _ensure_stock_baseline(fund, positions):
         for row in positions:
             if not is_closed(row):
                 connection.execute(
-                    "INSERT OR IGNORE INTO fund_position_baselines (fund_id, position_id, created_at) VALUES (?, ?, ?)",
-                    (fund["id"], row["id"], timestamp),
+                    """INSERT OR IGNORE INTO fund_position_baselines
+                       (fund_id, position_id, created_at, ticker, buy_date, qty, buy_price)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (fund["id"], row["id"], timestamp, _position_identity(row)[0], row["buy_date"], row["qty"], row["buy_price"]),
                 )
         connection.execute(
             "UPDATE funds SET baseline_initialized = 1, updated_at = ? WHERE id = ?",
@@ -217,30 +241,53 @@ def _ensure_stock_baseline(fund, positions):
         )
 
 
+def _position_identity(row):
+    """What makes a holding the same holding, independent of its database id."""
+    buy_date = parse_date(row["buy_date"])
+    return (
+        (row["ticker"] or "").strip().upper(),
+        buy_date.isoformat() if buy_date else str(row["buy_date"] or ""),
+        round(float(row["qty"] or 0), 6),
+        round(float(row["buy_price"] or 0), 6),
+    )
+
+
 def _automatic_stock_cash_flows(fund, positions):
     with connect() as connection:
-        baseline_ids = {row["position_id"] for row in connection.execute(
-            "SELECT position_id FROM fund_position_baselines WHERE fund_id = ?", (fund["id"],)
-        ).fetchall()}
+        baseline_rows = connection.execute(
+            "SELECT position_id, ticker, buy_date, qty, buy_price FROM fund_position_baselines WHERE fund_id = ?",
+            (fund["id"],),
+        ).fetchall()
+    baseline_ids = {row["position_id"] for row in baseline_rows}
+    baseline_identities = {_position_identity(row) for row in baseline_rows if row["ticker"]}
     started_at = fund["created_at"]
+    start_date = parse_date(started_at[:10])
     purchases = 0.0
     sale_proceeds = 0.0
     purchase_count = 0
     sale_count = 0
     for row in positions:
-        is_baseline = row["id"] in baseline_ids
+        is_baseline = row["id"] in baseline_ids or _position_identity(row) in baseline_identities
         created_at = str(row["created_at"] or "")
-        if not is_baseline and created_at > started_at:
+        sold = is_closed(row) and row["sell_price"] is not None
+        sell_date = parse_date(row["sell_date"])
+        if is_baseline:
+            # A baseline holding was owned at inception: no purchase cost, and
+            # its sale proceeds return to fund cash.
+            if sold:
+                sale_proceeds += row["sell_price"] * (row["qty"] or 0)
+                sale_count += 1
+            continue
+        if sold and sell_date and start_date and sell_date < start_date:
+            # Bought and sold before the fund existed (e.g. a historical bet
+            # entered later): not fund activity.
+            continue
+        if created_at > started_at:
             purchases += (row["buy_price"] or 0) * (row["qty"] or 0)
             purchase_count += 1
-        if is_closed(row) and row["sell_price"] is not None:
-            sell_date = str(row["sell_date"] or "")
-            if is_baseline or created_at > started_at:
-                # A baseline holding leaving the portfolio, or a post-inception
-                # round trip, automatically returns its sale proceeds to cash.
-                if is_baseline or sell_date >= started_at[:10]:
-                    sale_proceeds += row["sell_price"] * (row["qty"] or 0)
-                    sale_count += 1
+            if sold:
+                sale_proceeds += row["sell_price"] * (row["qty"] or 0)
+                sale_count += 1
     return {
         "purchases": purchases, "sale_proceeds": sale_proceeds,
         "net_cash": sale_proceeds - purchases,
@@ -248,7 +295,7 @@ def _automatic_stock_cash_flows(fund, positions):
     }
 
 
-def _fund_snapshot(user_id, fund_id):
+def _fund_snapshot(user_id, fund_id, final=False):
     fund = _get_fund(user_id, fund_id)
     if not fund:
         return None
@@ -314,15 +361,39 @@ def _fund_snapshot(user_id, fund_id):
         "liquidity_shortfall": max(0.0, -cash),
     }
     timestamp = _now()
+    source = "eod" if final else "live"
     with connect() as connection:
+        # The scheduler's end-of-day value (source 'eod') is the day's closing
+        # NAV; later page views don't overwrite it.
         connection.execute(
-            """INSERT INTO fund_nav_snapshots (fund_id, snapshot_date, nav, aum, total_units, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO fund_nav_snapshots (fund_id, snapshot_date, nav, aum, total_units, created_at, updated_at, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(fund_id, snapshot_date) DO UPDATE SET
-                 nav = excluded.nav, aum = excluded.aum, total_units = excluded.total_units, updated_at = excluded.updated_at""",
-            (fund_id, date.today().isoformat(), nav, aum, total_units, timestamp, timestamp),
+                 nav = excluded.nav, aum = excluded.aum, total_units = excluded.total_units,
+                 updated_at = excluded.updated_at, source = excluded.source
+               WHERE excluded.source = 'eod' OR fund_nav_snapshots.source != 'eod'""",
+            (fund_id, date.today().isoformat(), nav, aum, total_units, timestamp, timestamp, source),
         )
     return result
+
+
+def record_eod_nav_snapshots():
+    """Record every fund's closing NAV. Called by the scheduler after EOD."""
+    from user_context import reset_current_user_id, set_current_user_id
+
+    init_fund_db()
+    with connect() as connection:
+        funds = [dict(row) for row in connection.execute("SELECT id, user_id FROM funds").fetchall()]
+    recorded = []
+    for fund in funds:
+        token = set_current_user_id(fund["user_id"])
+        try:
+            snapshot = _fund_snapshot(fund["user_id"], fund["id"], final=True)
+            if snapshot:
+                recorded.append((fund["id"], snapshot["nav"]))
+        finally:
+            reset_current_user_id(token)
+    return recorded
 
 
 def _investor_statement_snapshot(user_id, fund_id, investor_id):

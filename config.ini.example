@@ -45,6 +45,8 @@ BUSINESS_INCOME_TAX_RATE=30
 [API]
 # Prefer PORTFOLIO_API_KEY in .env.
 PORTFOLIO_API_KEY=
+# Whose portfolio /api/portfolio/actual-pl returns (default: the admin user).
+PORTFOLIO_API_USER=
 
 [PUBLISH]
 ENABLE_AFTER_EOD=NO
@@ -56,3 +58,18 @@ PUBLIC_DIR=
 KEEP=30
 # Optional second copy off this machine, e.g. a OneDrive or Google Drive folder.
 COPY_DIR=
+
+[CHARGES]
+# Optional overrides for brokerage and statutory charges used in charge and
+# what-if calculations. Leave commented to use the built-in defaults; check
+# them against the current NSE circular and your broker's charge sheet.
+# BROKERAGE_PER_ORDER = 20
+# OPTION_STT_RATE = 0.0015
+# EQUITY_DELIVERY_STT_RATE = 0.001
+# OPTION_TRANSACTION_RATE = 0.0003553
+# EQUITY_DELIVERY_TRANSACTION_RATE = 0.0000307
+# SEBI_RATE = 0.000001
+# OPTION_STAMP_RATE = 0.00003
+# EQUITY_DELIVERY_STAMP_RATE = 0.00015
+# GST_RATE = 0.18
+# EQUITY_DP_CHARGE = 15.34

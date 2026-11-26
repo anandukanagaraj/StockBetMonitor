@@ -115,8 +115,9 @@ def stop_comparison(rows, positions, scenario_key="stop_loss"):
 
 
 def save_cache(cache):
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_PATH.write_text(json.dumps(cache, indent=2, sort_keys=True), encoding="utf-8")
+    from services.json_cache import atomic_write_json, prune_superseded
+
+    atomic_write_json(CACHE_PATH, prune_superseded(cache, CACHE_VERSION))
 
 
 def cache_key(ticker, start_date, end_date):

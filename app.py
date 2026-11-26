@@ -6,6 +6,8 @@ import math
 import os
 import re
 import secrets
+import threading
+import time
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from functools import wraps
@@ -15,6 +17,7 @@ from types import SimpleNamespace
 from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from db import get_user_by_id
 from db import create_position, create_stock_price_alert, create_stock_trade_group, create_user, delete_paper_stock_trade_group, delete_position, delete_stock_price_alert, get_default_stock_trade_group, get_position, get_stock_price_alert, get_stock_trade_group, get_user_by_username, init_db, list_portfolio_performance_snapshots, list_positions, list_positions_for_management, list_stock_booking_simulation_snapshots, list_stock_price_alerts, list_stock_trade_groups, list_users, metrics, next_bet_no, next_stock_bet_numbers, record_stock_booking_simulation_snapshot, record_stock_stop_recovery_audit, set_stock_trade_group_active, set_user_active, set_user_password, update_current_price, update_position, update_stock_price_alert, update_stock_trade_group, update_user_profile
 from options_db import create_option_strategy, create_trade_group, delete_option_strategy, delete_trade_group, get_option_strategy, get_trade_group, init_options_db, list_option_strategies, list_option_strategies_missing_stock_move, list_trade_groups, next_option_bet_numbers, next_strategy_no, set_trade_group_active, update_option_stock_move, update_option_strategy, update_trade_group
 from services.date_utils import display_date as display_shared_date, normalized_buy_date_map, parse_date as parse_shared_date, position_identity
@@ -223,11 +226,17 @@ SCHEDULER_STALE_MINUTES = configured_int(
     minimum=5,
 )
 APP_PORT = configured_int("APP", "PORT", 5002, env_name="PORT", minimum=1)
+_api_config = configparser.ConfigParser()
+_api_config.read(CONFIG_PATH)
 API_KEY = os.getenv("PORTFOLIO_API_KEY")
 if API_KEY is None:
-    _api_config = configparser.ConfigParser()
-    _api_config.read(CONFIG_PATH)
     API_KEY = _api_config.get("API", "PORTFOLIO_API_KEY", fallback="").strip()
+# Whose portfolio the key-protected API returns.
+API_USERNAME = (
+    os.getenv("PORTFOLIO_API_USER")
+    or _api_config.get("API", "PORTFOLIO_API_USER", fallback="").strip()
+    or ADMIN_USERNAME
+)
 DEFAULT_ADMIN_PASSWORD = "admin123"
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
 if ADMIN_PASSWORD_HASH:
@@ -281,7 +290,60 @@ def admin_required(view):
 
 @app.before_request
 def set_request_user_context():
-    set_current_user_id(session.get("user_id"))
+    user_id = session.get("user_id")
+    if user_id is not None:
+        # Re-check the account on every request so disabling a user, or
+        # removing admin rights, takes effect immediately.
+        user = get_user_by_id(user_id)
+        if not user or not user["is_active"]:
+            app.logger.warning("Session ended for disabled or missing user: user_id=%s", user_id)
+            session.clear()
+            user_id = None
+        else:
+            session["is_admin"] = bool(user["is_admin"])
+    set_current_user_id(user_id)
+
+
+LOGIN_MAX_FAILURES = 5
+LOGIN_LOCK_SECONDS = 15 * 60
+_login_failures = {}
+_login_failures_lock = threading.Lock()
+
+
+def _login_key(username):
+    return (username.strip().lower(), request.remote_addr or "")
+
+
+def _recent_login_failures(key, now):
+    return [stamp for stamp in _login_failures.get(key, []) if now - stamp < LOGIN_LOCK_SECONDS]
+
+
+def login_locked(username, now=None):
+    now = now or time.time()
+    with _login_failures_lock:
+        recent = _recent_login_failures(_login_key(username), now)
+        _login_failures[_login_key(username)] = recent
+        return len(recent) >= LOGIN_MAX_FAILURES
+
+
+def record_login_failure(username, now=None):
+    now = now or time.time()
+    with _login_failures_lock:
+        key = _login_key(username)
+        _login_failures[key] = _recent_login_failures(key, now) + [now]
+
+
+def clear_login_failures(username):
+    with _login_failures_lock:
+        _login_failures.pop(_login_key(username), None)
+
+
+def safe_next_url(value):
+    """Only allow redirects to paths on this site (no other hosts)."""
+    value = (value or "").strip()
+    if not value.startswith("/") or value.startswith("//") or value.startswith("/\\"):
+        return None
+    return value
 
 
 def csrf_token():
@@ -663,7 +725,9 @@ def require_portfolio_api_key():
     remote = (request.remote_addr or "").strip()
     is_local_request = remote in {"127.0.0.1", "::1"}
     if not API_KEY:
-        if is_local_request:
+        # Without a key, only allow requests on a localhost-only install. When
+        # hosted, a reverse proxy can make every request look local.
+        if is_local_request and IS_LOCAL_BIND:
             return None
         return jsonify({"error": "Unauthorized"}), 401
     supplied = request.headers.get("X-API-Key")
@@ -1500,7 +1564,31 @@ def parse_int(value):
     return int(value)
 
 
+TICKER_PATTERN = re.compile(r"[A-Z0-9&._\- ]{1,30}")
+
+
+def parse_form_date(value, field_name, required=False):
+    text = (value or "").strip()
+    if not text:
+        if required:
+            raise ValueError(f"{field_name} is required.")
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a valid date (YYYY-MM-DD).") from exc
+
+
 def position_from_form(form):
+    ticker = (form.get("ticker") or "").strip().upper()
+    if not ticker:
+        raise ValueError("Ticker is required.")
+    if not TICKER_PATTERN.fullmatch(ticker):
+        raise ValueError("Ticker may only contain letters, numbers, spaces and & . - _ (max 30).")
+    buy_date = parse_form_date(form.get("buy_date"), "Buy Date", required=True)
+    parsed_sell_date = parse_form_date(form.get("sell_date"), "Sell Date")
+    if parsed_sell_date and parsed_sell_date < buy_date:
+        raise ValueError("Sell Date cannot be before Buy Date.")
     trade_group_id = parse_int(form.get("trade_group_id"))
     sell_price = parse_float(form.get("sell_price"), field_name="Sell Price")
     current_price = parse_float(form.get("current_price"), field_name="Current Price")
@@ -1508,7 +1596,7 @@ def position_from_form(form):
     buy_price = parse_float(form.get("buy_price"), required=True, field_name="Buy Price")
     target_price = parse_float(form.get("target_price"), required=True, field_name="Target Price")
     stop_loss = parse_float(form.get("stop_loss"), field_name="Stop Loss")
-    sell_date = form.get("sell_date") or None
+    sell_date = parsed_sell_date.isoformat() if parsed_sell_date else None
     status = "Closed" if form.get("status") == "Closed" else "Open"
 
     validate_positive(qty, "Quantity")
@@ -1530,8 +1618,8 @@ def position_from_form(form):
     data = {
         "bet_no": parse_int(form.get("bet_no")),
         "trade_group_id": trade_group_id,
-        "ticker": form["ticker"],
-        "buy_date": form["buy_date"],
+        "ticker": ticker,
+        "buy_date": buy_date.isoformat(),
         "qty": qty,
         "buy_price": buy_price,
         "target_price": target_price,
@@ -1809,6 +1897,10 @@ def login():
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
+        if login_locked(username):
+            app.logger.warning("Login locked after repeated failures: username=%s", username)
+            flash("Too many failed sign-in attempts. Try again in 15 minutes.", "error")
+            return render_template("login.html")
         user = get_user_by_username(username)
         # The bootstrap password (ADMIN_PASSWORD_HASH, or the development default)
         # only works until the admin account has a password of its own.
@@ -1836,8 +1928,10 @@ def login():
                 session["must_change_password"] = True
                 flash("You are using the default password. Change it now from Account > Change password.", "error")
             csrf_token()
+            clear_login_failures(username)
             app.logger.info("Login succeeded: username=%s", username)
-            return redirect(request.args.get("next") or url_for("report_targets"))
+            return redirect(safe_next_url(request.args.get("next")) or url_for("report_targets"))
+        record_login_failure(username)
         app.logger.warning("Login failed: username=%s", username)
         flash("Invalid username or password.")
 
@@ -2047,6 +2141,18 @@ def api_portfolio_actual_pl():
     if unauthorized:
         return unauthorized
 
+    api_user = get_user_by_username(API_USERNAME)
+    if not api_user:
+        app.logger.error("Portfolio API user not found: %s", API_USERNAME)
+        return jsonify({"error": "API user not configured"}), 500
+    user_token = set_current_user_id(api_user["id"])
+    try:
+        return jsonify(build_portfolio_api_payload())
+    finally:
+        reset_current_user_id(user_token)
+
+
+def build_portfolio_api_payload():
     include_details = request.args.get("details", "1").strip().lower() not in {"0", "false", "no"}
     stock_positions = list_positions(trade_group_code=None, reportable_only=True)
     option_strategies = list_option_strategies(reportable_only=True)
@@ -2078,7 +2184,7 @@ def api_portfolio_actual_pl():
     if not include_details:
         payload["stocks"].pop("bets", None)
         payload["options"].pop("bets", None)
-    return jsonify(payload)
+    return payload
 
 
 @app.route("/stock-profit-booking-simulation")

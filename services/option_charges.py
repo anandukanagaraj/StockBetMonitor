@@ -11,6 +11,48 @@ EQUITY_DELIVERY_STAMP_RATE = 0.00015
 GST_RATE = 0.18
 EQUITY_DP_CHARGE = 15.34
 
+# The values above are defaults. Rates change with budgets, exchange circulars
+# and broker plans, so any of them can be overridden in config.ini:
+#   [CHARGES]
+#   OPTION_STT_RATE = 0.0015
+CHARGE_SETTINGS = (
+    "BROKERAGE_PER_ORDER", "OPTION_STT_RATE", "EQUITY_DELIVERY_STT_RATE", "OPTION_TRANSACTION_RATE",
+    "EQUITY_DELIVERY_TRANSACTION_RATE", "SEBI_RATE", "OPTION_STAMP_RATE", "EQUITY_DELIVERY_STAMP_RATE",
+    "GST_RATE", "EQUITY_DP_CHARGE",
+)
+
+
+def load_charge_overrides(config_path=None):
+    import configparser
+    import logging
+    from pathlib import Path
+
+    config_path = Path(config_path or Path(__file__).resolve().parents[1] / "config.ini")
+    config = configparser.ConfigParser()
+    config.optionxform = str.upper
+    config.read(config_path)
+    if not config.has_section("CHARGES"):
+        return {}
+    applied = {}
+    for name in CHARGE_SETTINGS:
+        raw_value = config.get("CHARGES", name, fallback="").strip()
+        if not raw_value:
+            continue
+        try:
+            value = float(raw_value)
+        except ValueError:
+            logging.getLogger(__name__).warning("Ignoring invalid charge setting %s=%r", name, raw_value)
+            continue
+        if value < 0:
+            logging.getLogger(__name__).warning("Ignoring negative charge setting %s=%r", name, raw_value)
+            continue
+        globals()[name] = value
+        applied[name] = value
+    return applied
+
+
+load_charge_overrides()
+
 
 def option_leg_type(leg):
     option_type = (leg.get("option_type") or "").strip().upper()

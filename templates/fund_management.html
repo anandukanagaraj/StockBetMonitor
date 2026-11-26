@@ -18,6 +18,7 @@
   <div class="option-chart-legend portfolio-chart-legend"><span><i class="line-dot"></i> {{ fund.fund.name }} NAV</span><span><i class="fund-nifty-dot"></i> NIFTY 50</span><span>Daily fund snapshots begin when fund tracking is enabled.</span></div>
 </section>
 
+{% if fund.assets.unpriced_tickers %}<div class="alert error">No current price for {{ fund.assets.unpriced_tickers|join(', ') }}. These holdings are valued at cost, so NAV may be off until prices refresh.</div>{% endif %}
 {% if fund.liquidity_shortfall %}<div class="alert error">Redemptions/outflows exceed recorded fund cash by {{ money(fund.liquidity_shortfall) }}. Sell assets or record a cash inflow to cover the shortfall.</div>{% endif %}
 
 <section class="fund-form-grid">

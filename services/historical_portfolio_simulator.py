@@ -37,12 +37,16 @@ def _load_cache():
 
 
 def _save_cache(cache):
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_PATH.write_text(json.dumps(cache, indent=2, sort_keys=True), encoding="utf-8")
+    from services.json_cache import atomic_write_json, prune_superseded
+
+    atomic_write_json(CACHE_PATH, prune_superseded(cache, CACHE_KEY_VERSION))
+
+
+CACHE_KEY_VERSION = "ohlc-v1"
 
 
 def _cache_key(ticker, start_date, end_date):
-    return f"ohlc-v1|{ticker.strip().upper()}|{start_date.isoformat()}|{end_date.isoformat()}"
+    return f"{CACHE_KEY_VERSION}|{ticker.strip().upper()}|{start_date.isoformat()}|{end_date.isoformat()}"
 
 
 def daily_ohlc(ticker, start_date, end_date, cache=None, cache_changed=None):

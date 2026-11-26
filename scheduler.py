@@ -372,7 +372,7 @@ def record_portfolio_snapshot():
     )
 
 
-def evaluate(row):
+def evaluate(row, stop_loss_enabled=True):
     current = row["current_price"]
     target = row["target_price"]
     buy = row["buy_price"]
@@ -396,7 +396,7 @@ def evaluate(row):
     else:
         status = "HOLD"
 
-    if stop is not None and current <= stop:
+    if stop_loss_enabled and stop is not None and current <= stop:
         status = "STOP LOSS HIT"
 
     return AlertResult(
@@ -898,6 +898,21 @@ def maybe_alert_stale_scheduler(config):
         _last_stale_alert_date = today
 
 
+def failed_price_alert_message(failed_rows, previous, today):
+    """Return a Telegram message listing bets with no price, or None if this
+    exact list was already reported today."""
+    tickers = sorted({(row["ticker"] or "").strip().upper() for row in failed_rows if row["ticker"]})
+    if not tickers:
+        return None
+    if previous and previous.get("date") == today and previous.get("tickers") == tickers:
+        return None
+    return tickers, (
+        "StockMonitor: could not fetch prices for "
+        f"{len(tickers)} open bet(s), so they were NOT checked for target or stop loss:\n"
+        + ", ".join(tickers)
+    )
+
+
 def run_market_check(config):
     logger.info("=" * 60)
     logger.info("Scheduled market check started")
@@ -910,6 +925,7 @@ def run_market_check(config):
     except Exception:
         logger.exception("Portfolio performance snapshot failed")
 
+    stop_loss_enabled = get_bool(config, "ALERTS", "ENABLE_STOPLOSS", True)
     state = load_state()
     previous_alerts = state.get("alerts") or {}
     today = datetime.now().date().isoformat()
@@ -919,7 +935,7 @@ def run_market_check(config):
 
     results = []
     for row in rows:
-        result = evaluate(row)
+        result = evaluate(row, stop_loss_enabled=stop_loss_enabled)
         if result is None:
             logger.warning("Alert evaluation skipped: bet_no=%s ticker=%s", row["bet_no"], row["ticker"])
             continue
@@ -955,6 +971,12 @@ def run_market_check(config):
 
     state = load_state()
     state["alerts"] = alert_state
+    failed_alert = failed_price_alert_message(failed_rows, state.get("price_failure_alert"), today)
+    if failed_alert:
+        tickers, message = failed_alert
+        logger.warning("Price fetch failed; bets not checked: %s", ", ".join(tickers))
+        if send_telegram(config, message):
+            state["price_failure_alert"] = {"date": today, "tickers": tickers}
     save_state(state)
 
     try:
@@ -993,6 +1015,30 @@ def is_trading_day(config, value=None):
     value = value or datetime.now()
     day = value.date() if isinstance(value, datetime) else value
     return day.weekday() < 5 and day.isoformat() not in configured_market_holidays(config)
+
+
+def run_eod_fund_nav_if_due(config, now=None):
+    """Record each fund's closing NAV once per trading day, after REPORT_TIME."""
+    now = now or datetime.now()
+    today = now.date().isoformat()
+    report_time = parse_hhmm(config.get("MARKET", "REPORT_TIME", fallback="15:35"))
+    if now.time() < report_time or not is_trading_day(config, now):
+        return None
+    state = load_state()
+    if state.get("fund_nav_date") == today:
+        return None
+    try:
+        from fund_management import record_eod_nav_snapshots
+
+        recorded = record_eod_nav_snapshots()
+    except Exception:
+        logger.exception("End-of-day fund NAV recording failed")
+        return None
+    logger.info("End-of-day fund NAV recorded: %s", recorded)
+    state = load_state()
+    state["fund_nav_date"] = today
+    save_state(state)
+    return recorded
 
 
 def run_daily_backup_if_due(config, now=None):
@@ -1465,6 +1511,7 @@ def run_once(force=False):
         logger.info("Outside Indian market hours. Skipping market check.")
         write_heartbeat(status="idle")
     run_eod_email_if_due(config, force=force)
+    run_eod_fund_nav_if_due(config)
     run_daily_backup_if_due(config)
 
 
@@ -1502,6 +1549,7 @@ def run_forever():
                 logger.info("Next market cycle scheduled_for=%s", next_market_check_at.strftime("%Y-%m-%d %H:%M:%S"))
 
             run_eod_email_if_due(config, force=False)
+            run_eod_fund_nav_if_due(config)
             run_daily_backup_if_due(config)
             sleep_seconds = next_scheduler_wakeup(config, next_market_check_at)
             write_heartbeat(status="sleeping")

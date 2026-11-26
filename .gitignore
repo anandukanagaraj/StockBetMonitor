@@ -30,3 +30,6 @@ public/
 .test-*/
 .codex-pytest-tmp/
 .pytest_cache/
+
+# Previous Python environment kept as a fallback
+.venv-*/
