@@ -246,7 +246,11 @@ Run one forced cycle:
 
 Use `--force` when testing outside market hours.
 
-## 8. Installing Scheduler Auto-Start
+## 8. Installing Scheduler and Web App Auto-Start
+
+The installer registers two logon tasks: `StockMonitorV3Scheduler` and
+`StockMonitorV3WebApp` (the UI at http://127.0.0.1:5002/, no console window).
+Add `-SkipWebApp` to install only the scheduler.
 
 Run PowerShell:
 

@@ -405,9 +405,15 @@ Run once and force checks outside market hours:
 & ".\.venv\Scripts\python.exe" scheduler.py --once --force
 ```
 
-## Install Scheduler Auto-Start
+## Install Scheduler and Web App Auto-Start
 
-This installs the scheduler to start when you log in to Windows.
+This installs two Windows logon tasks so both start when you log in:
+
+- `StockMonitorV3Scheduler`: price checks, alerts and the EOD report.
+- `StockMonitorV3WebApp`: the web UI at http://127.0.0.1:5002/, run with
+  `pythonw.exe` so no console window stays open (logs go to `logs\`).
+
+Use `-SkipWebApp` to install only the scheduler.
 
 ```powershell
 cd "C:\Anand\VSS_Workspace\StockMonitor-V3"
@@ -424,6 +430,7 @@ Start manually:
 
 ```powershell
 Start-ScheduledTask -TaskName "StockMonitorV3Scheduler"
+Start-ScheduledTask -TaskName "StockMonitorV3WebApp"
 ```
 
 Check status:
@@ -730,7 +737,9 @@ powershell -ExecutionPolicy Bypass -File ".\install_scheduler_task.ps1"
 ```
 
 Administrator rights may be required to replace an existing scheduled task.
-The installer otherwise creates this per-user Startup-folder fallback:
+If an existing task cannot be updated, the installer keeps it unchanged.
+Only when a task cannot be created at all does it add this per-user
+Startup-folder fallback:
 
 ```powershell
 $StartupLauncher = Join-Path ([Environment]::GetFolderPath("Startup")) "StockMonitorV3Scheduler.cmd"
