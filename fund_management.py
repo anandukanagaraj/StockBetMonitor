@@ -379,9 +379,10 @@ def _fund_snapshot(user_id, fund_id, final=False):
 
 def record_eod_nav_snapshots():
     """Record every fund's closing NAV. Called by the scheduler after EOD."""
+    from services.schema import ensure_schema
     from user_context import reset_current_user_id, set_current_user_id
 
-    init_fund_db()
+    ensure_schema()
     with connect() as connection:
         funds = [dict(row) for row in connection.execute("SELECT id, user_id FROM funds").fetchall()]
     recorded = []
@@ -1004,5 +1005,7 @@ def add_cash_movement(fund_id):
 
 
 def register_fund_management(app):
-    init_fund_db()
+    from services.schema import ensure_schema
+
+    ensure_schema()
     app.register_blueprint(fund_bp)

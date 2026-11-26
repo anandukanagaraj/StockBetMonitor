@@ -459,10 +459,6 @@ def leg_net_cashflow(leg):
     return -value if action == "SELL" else value
 
 
-def net_debit(legs):
-    return sum(leg_net_cashflow(leg) for leg in legs)
-
-
 def option_type(leg):
     parsed = parse_option_ticker(leg.get("ticker"))
     return (leg.get("option_type") or parsed.get("option_type") or "").upper()
@@ -474,45 +470,13 @@ def leg_strike(leg):
     return parse_option_ticker(leg.get("ticker")).get("strike")
 
 
-def spread_width(legs, option_type_filter=None):
-    strikes = [
-        leg_strike(leg)
-        for leg in legs
-        if leg_strike(leg) is not None
-        and (option_type_filter is None or option_type(leg) == option_type_filter)
-    ]
-    qty_values = [
-        abs(leg.get("qty") or 0)
-        for leg in legs
-        if leg_strike(leg) is not None
-        and (option_type_filter is None or option_type(leg) == option_type_filter)
-    ]
-    if len(strikes) < 2 or not qty_values:
-        return None
-    return (max(strikes) - min(strikes)) * max(qty_values)
-
-
 def calculated_max_risk(data, legs):
-    strategy = (data.get("strategy_type") or "").strip().lower()
-    debit = net_debit(legs)
+    """Max risk for a strategy. Tickers are parsed here (this module has the
+    fuller option-ticker parser); the maths lives in services.option_charges."""
+    from services.option_charges import calculated_option_max_risk
 
-    if strategy in {"long call", "long put"}:
-        return max(debit, 0) or None
-    if strategy in {"bull call spread", "bear put spread", "debit spread"}:
-        return max(debit, 0) or None
-    if strategy in {"bull put spread", "bear call spread", "credit spread"}:
-        width = spread_width(legs)
-        return max((width or 0) - abs(min(debit, 0)), 0) or None
-    if strategy == "iron condor":
-        call_width = spread_width(legs, "CE") or 0
-        put_width = spread_width(legs, "PE") or 0
-        width = max(call_width, put_width)
-        return max(width - abs(min(debit, 0)), 0) or None
-    if strategy == "iron butterfly":
-        width = spread_width(legs)
-        return max((width or 0) - abs(min(debit, 0)), 0) or None
-
-    return max(debit, 0) or None
+    parsed_legs = [{**dict(leg), "strike": leg_strike(leg), "option_type": option_type(leg)} for leg in legs]
+    return calculated_option_max_risk({"strategy_type": data.get("strategy_type"), "legs": parsed_legs})
 
 
 def enrich_strategy_data(data, legs):

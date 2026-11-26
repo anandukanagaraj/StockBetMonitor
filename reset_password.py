@@ -8,7 +8,8 @@ import getpass
 
 from werkzeug.security import generate_password_hash
 
-from db import get_user_by_username, init_db, set_user_password
+from db import get_user_by_username, set_user_password
+from services.schema import ensure_schema
 
 
 def main():
@@ -16,7 +17,7 @@ def main():
     parser.add_argument("username", nargs="?", default="admin")
     args = parser.parse_args()
 
-    init_db()
+    ensure_schema()
     user = get_user_by_username(args.username)
     if not user:
         raise SystemExit(f"User not found: {args.username}")

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from db import connect, default_stock_group_id, init_db, now_iso
+from db import connect, default_stock_group_id, now_iso
 from services.date_utils import normalized_buy_date_map, position_identity
 
 
@@ -173,7 +173,9 @@ def main():
     if not excel_path.exists():
         raise FileNotFoundError(f"Excel file not found: {excel_path}")
 
-    init_db()
+    from services.schema import ensure_schema
+
+    ensure_schema()
     positions = read_positions(excel_path)
     imported, skipped = import_positions(positions)
     print(f"Read {len(positions)} rows from {excel_path}")

@@ -39,6 +39,7 @@ from db import (
 )
 from options_db import list_option_strategies
 from services.db_backup import backup_database
+from services.pl_core import realized_pl
 from services.date_utils import (
     display_date as display_shared_date,
     normalized_buy_date_map,
@@ -96,13 +97,15 @@ def setup_logger():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
+    # LOG_LEVEL (default INFO) controls what reaches the log file and console.
+    level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").strip().upper(), logging.INFO)
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(level)
 
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(max(level, logging.INFO))
 
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
@@ -414,12 +417,6 @@ def evaluate(row, stop_loss_enabled=True):
         status=status,
         position_id=row["id"] if "id" in row.keys() else None,
     )
-
-
-def realized_pl(row):
-    if row["sell_price"] is None:
-        return None
-    return (row["sell_price"] - row["buy_price"]) * row["qty"]
 
 
 def db_row_to_report_position(row):
@@ -1010,6 +1007,39 @@ def configured_market_holidays(config):
     }
 
 
+def holiday_coverage_warning(config, today=None):
+    """Message if config.ini has no NSE holidays for this year (or, in December,
+    for next year), otherwise None."""
+    today = today or datetime.now().date()
+    years = {value[:4] for value in configured_market_holidays(config)}
+    missing = [str(year) for year in (today.year, today.year + 1)
+               if str(year) not in years and (year == today.year or today.month == 12)]
+    if not missing:
+        return None
+    return (
+        f"StockMonitor: no NSE trading holidays are configured for {', '.join(missing)}. "
+        "Add them to HOLIDAYS in the [MARKET] section of config.ini, or the scheduler "
+        "will treat those holidays as trading days."
+    )
+
+
+def warn_about_holidays_if_due(config, now=None):
+    now = now or datetime.now()
+    message = holiday_coverage_warning(config, now.date())
+    if not message:
+        return None
+    state = load_state()
+    today = now.date().isoformat()
+    if state.get("holiday_warning_date") == today:
+        return None
+    logger.warning(message)
+    send_telegram(config, message)
+    state = load_state()
+    state["holiday_warning_date"] = today
+    save_state(state)
+    return message
+
+
 def is_trading_day(config, value=None):
     """True only for weekdays that are not configured exchange holidays."""
     value = value or datetime.now()
@@ -1551,6 +1581,7 @@ def run_forever():
             run_eod_email_if_due(config, force=False)
             run_eod_fund_nav_if_due(config)
             run_daily_backup_if_due(config)
+            warn_about_holidays_if_due(config)
             sleep_seconds = next_scheduler_wakeup(config, next_market_check_at)
             write_heartbeat(status="sleeping")
             logger.info("Scheduler sleeping for %.0f seconds", sleep_seconds)
@@ -1573,6 +1604,9 @@ if __name__ == "__main__":
         raise SystemExit("Scheduler is already running. Stop the existing process before starting another one.")
 
     warn_if_not_ist()
+    from services.schema import ensure_schema
+
+    ensure_schema()
     try:
         if args.once:
             run_once(force=args.force)

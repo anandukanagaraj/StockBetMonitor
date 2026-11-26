@@ -18,8 +18,8 @@ from flask import Flask, Response, abort, flash, jsonify, redirect, render_templ
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import get_user_by_id
-from db import create_position, create_stock_price_alert, create_stock_trade_group, create_user, delete_paper_stock_trade_group, delete_position, delete_stock_price_alert, get_default_stock_trade_group, get_position, get_stock_price_alert, get_stock_trade_group, get_user_by_username, init_db, list_portfolio_performance_snapshots, list_positions, list_positions_for_management, list_stock_booking_simulation_snapshots, list_stock_price_alerts, list_stock_trade_groups, list_users, metrics, next_bet_no, next_stock_bet_numbers, record_stock_booking_simulation_snapshot, record_stock_stop_recovery_audit, set_stock_trade_group_active, set_user_active, set_user_password, update_current_price, update_position, update_stock_price_alert, update_stock_trade_group, update_user_profile
-from options_db import create_option_strategy, create_trade_group, delete_option_strategy, delete_trade_group, get_option_strategy, get_trade_group, init_options_db, list_option_strategies, list_option_strategies_missing_stock_move, list_trade_groups, next_option_bet_numbers, next_strategy_no, set_trade_group_active, update_option_stock_move, update_option_strategy, update_trade_group
+from db import create_position, create_stock_price_alert, create_stock_trade_group, create_user, delete_paper_stock_trade_group, delete_position, delete_stock_price_alert, get_default_stock_trade_group, get_position, get_stock_price_alert, get_stock_trade_group, get_user_by_username, list_portfolio_performance_snapshots, list_positions, list_positions_for_management, list_stock_booking_simulation_snapshots, list_stock_price_alerts, list_stock_trade_groups, list_users, metrics, next_bet_no, next_stock_bet_numbers, record_stock_booking_simulation_snapshot, record_stock_stop_recovery_audit, set_stock_trade_group_active, set_user_active, set_user_password, update_current_price, update_position, update_stock_price_alert, update_stock_trade_group, update_user_profile
+from options_db import create_option_strategy, create_trade_group, delete_option_strategy, delete_trade_group, get_option_strategy, get_trade_group, list_option_strategies, list_option_strategies_missing_stock_move, list_trade_groups, next_option_bet_numbers, next_strategy_no, set_trade_group_active, update_option_stock_move, update_option_strategy, update_trade_group
 from services.date_utils import display_date as display_shared_date, normalized_buy_date_map, parse_date as parse_shared_date, position_identity
 from services.excel_exporter import export_positions_to_excel
 from services.index_service import build_dashboard_review_summary, build_index_membership_report
@@ -56,6 +56,55 @@ from services.v1_report_generator import ReportGenerator
 from services.yahoo_service import historical_stock_move_pct, latest_price
 from user_context import reset_current_user_id, set_current_user_id
 from fund_management import register_fund_management
+from services.schema import ensure_schema
+from services.app_config import (  # moved out of app.py
+    DEFAULT_WHATIF_TRADE_LIMIT,
+    DEFAULT_STOCK_MOVE_BACKFILL_LIMIT,
+    configured_int,
+    configured_float,
+    WHATIF_TRADE_LIMIT,
+    STOCK_MOVE_BACKFILL_LIMIT,
+    STCG_TAX_RATE,
+    BUSINESS_INCOME_TAX_RATE,
+    REPORT_PRICE_REFRESH_MAX_AGE_MINUTES,
+    REPORT_KEEP_DAYS,
+    SCHEDULER_STALE_MINUTES,
+    APP_PORT,
+)
+from services.pl_core import (  # moved out of app.py
+    row_get,
+    money,
+    api_float,
+    api_pct,
+    realized_pl,
+    realized_pl_pct,
+    is_closed_position,
+    option_strategy_return_pct,
+    option_label,
+    summarize_pl_items,
+    build_pl_transactions,
+    build_month_calendar,
+    recent_stock_activity,
+    stock_actual_pl_payload,
+    option_actual_pl_payload,
+    realized_pl_by_year,
+)
+from services.options_analytics import (  # moved out of app.py
+    after_tax_profit,
+    best_scenario_label,
+    max_drawdown,
+    volatility,
+    scenario_risk_stats,
+    whatif_tax_basis,
+    option_bet_comparison,
+    option_bet_streaks,
+    option_dashboard_metrics,
+    option_growth_chart_data,
+    option_stock_move_distribution,
+    option_whatif_report_rows,
+    option_whatif_report_summary,
+    option_whatif_visible_columns,
+)
 
 
 app = Flask(__name__)
@@ -86,8 +135,7 @@ if os.getenv("TRUST_PROXY", "false").strip().lower() == "true":
     from werkzeug.middleware.proxy_fix import ProxyFix
 
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-init_db()
-init_options_db()
+ensure_schema()
 
 
 def setup_logging():
@@ -103,11 +151,13 @@ def setup_logging():
     if any(getattr(handler, "baseFilename", None) == str(log_file) for handler in app.logger.handlers):
         return
 
+    # LOG_LEVEL=DEBUG brings back per-request detail when troubleshooting.
+    level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").strip().upper(), logging.INFO)
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(level)
 
-    app.logger.setLevel(logging.DEBUG)
+    app.logger.setLevel(level)
     app.logger.addHandler(file_handler)
     logging.getLogger("werkzeug").addHandler(file_handler)
     logging.getLogger("werkzeug").setLevel(logging.INFO)
@@ -146,86 +196,11 @@ OPTION_STRATEGY_TYPES = [
     "Strangle",
     "Custom Multi-leg",
 ]
-DEFAULT_WHATIF_TRADE_LIMIT = 100
-DEFAULT_STOCK_MOVE_BACKFILL_LIMIT = 5
 MAX_PRICE_VALUE = 1_000_000
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH")
 
 
-def configured_int(section, key, default, env_name=None, minimum=None):
-    raw_value = os.getenv(env_name) if env_name else None
-    if raw_value is None:
-        config = configparser.ConfigParser()
-        config.read(CONFIG_PATH)
-        raw_value = config.get(section, key, fallback=None)
-    try:
-        value = int(raw_value) if raw_value not in {None, ""} else int(default)
-    except (TypeError, ValueError):
-        app.logger.warning("Invalid integer config %s.%s=%r; using %s", section, key, raw_value, default)
-        value = int(default)
-    if minimum is not None:
-        value = max(minimum, value)
-    return value
-
-
-def configured_float(section, key, default, env_name=None, minimum=None, maximum=None):
-    raw_value = os.getenv(env_name) if env_name else None
-    if raw_value is None:
-        config = configparser.ConfigParser()
-        config.read(CONFIG_PATH)
-        raw_value = config.get(section, key, fallback=None)
-    try:
-        value = float(raw_value) if raw_value not in {None, ""} else float(default)
-    except (TypeError, ValueError):
-        app.logger.warning("Invalid float config %s.%s=%r; using %s", section, key, raw_value, default)
-        value = float(default)
-    if minimum is not None:
-        value = max(minimum, value)
-    if maximum is not None:
-        value = min(maximum, value)
-    return value
-
-
-WHATIF_TRADE_LIMIT = configured_int(
-    "OPTIONS",
-    "WHATIF_TRADE_LIMIT",
-    DEFAULT_WHATIF_TRADE_LIMIT,
-    env_name="WHATIF_TRADE_LIMIT",
-    minimum=1,
-)
-STOCK_MOVE_BACKFILL_LIMIT = configured_int(
-    "OPTIONS",
-    "STOCK_MOVE_BACKFILL_LIMIT",
-    DEFAULT_STOCK_MOVE_BACKFILL_LIMIT,
-    env_name="STOCK_MOVE_BACKFILL_LIMIT",
-    minimum=0,
-)
-STCG_TAX_RATE = configured_float("OPTIONS", "STCG_TAX_RATE", 20, env_name="STCG_TAX_RATE", minimum=0, maximum=100)
-BUSINESS_INCOME_TAX_RATE = configured_float(
-    "OPTIONS",
-    "BUSINESS_INCOME_TAX_RATE",
-    30,
-    env_name="BUSINESS_INCOME_TAX_RATE",
-    minimum=0,
-    maximum=100,
-)
-REPORT_PRICE_REFRESH_MAX_AGE_MINUTES = configured_int(
-    "APP",
-    "REPORT_PRICE_REFRESH_MAX_AGE_MINUTES",
-    30,
-    env_name="REPORT_PRICE_REFRESH_MAX_AGE_MINUTES",
-    minimum=0,
-)
-REPORT_KEEP_DAYS = configured_int("APP", "REPORT_KEEP_DAYS", 14, env_name="REPORT_KEEP_DAYS", minimum=1)
-SCHEDULER_STALE_MINUTES = configured_int(
-    "APP",
-    "SCHEDULER_STALE_MINUTES",
-    45,
-    env_name="SCHEDULER_STALE_MINUTES",
-    minimum=5,
-)
-APP_PORT = configured_int("APP", "PORT", 5002, env_name="PORT", minimum=1)
 _api_config = configparser.ConfigParser()
 _api_config.read(CONFIG_PATH)
 API_KEY = os.getenv("PORTFOLIO_API_KEY")
@@ -374,10 +349,6 @@ def inject_security_helpers():
     }
 
 
-def money(value):
-    return format_indian_money(value)
-
-
 def compact_money(value):
     return format_indian_compact_money(value)
 
@@ -406,83 +377,6 @@ def pl_class(value):
     if value < 0:
         return "negative"
     return "neutral"
-
-
-def option_strategy_return_pct(row):
-    if row.get("strategy_pl") is None:
-        return None
-    capital = option_strategy_risk_capital(row)
-    if not capital:
-        return None
-    return (row["strategy_pl"] or 0) / capital * 100
-
-
-def best_scenario_label(scenarios):
-    available = [
-        (label, value)
-        for label, value in scenarios
-        if value is not None
-    ]
-    if not available:
-        return "-"
-    return max(available, key=lambda item: item[1])[0]
-
-
-def option_bet_comparison(strategy, legs):
-    long_call_values = [
-        leg["achieved_pl"]
-        for leg in legs
-        if (leg["action"] or "").upper() == "BUY"
-        and option_leg_type(leg) == "CE"
-        and leg["achieved_pl"] is not None
-    ]
-    long_put_values = [
-        leg["achieved_pl"]
-        for leg in legs
-        if (leg["action"] or "").upper() == "BUY"
-        and option_leg_type(leg) == "PE"
-        and leg["achieved_pl"] is not None
-    ]
-    actual = strategy["strategy_pl"]
-    long_call = sum(long_call_values) if long_call_values else None
-    long_put = sum(long_put_values) if long_put_values else None
-    stock_notional = stock_equivalent_notional(strategy["strategy_type"], legs)
-    long_stock = stock_simulation_pl_from_move(strategy["stock_move_pct"], strategy["strategy_type"], stock_notional)
-    actual_costs = option_strategy_costs(legs)
-    long_call_costs = single_leg_simulation_costs(legs, "CE")
-    long_put_costs = single_leg_simulation_costs(legs, "PE")
-    long_stock_costs = stock_simulation_costs(strategy["stock_move_pct"], strategy["strategy_type"], stock_notional)
-    actual_net = net_after_costs(actual, actual_costs)
-    scenarios = [
-        ("Actual Strategy", actual, actual_costs, option_strategy_risk_capital(strategy)),
-        ("Long Call Only", long_call, long_call_costs, single_leg_amount_risked(legs, "CE")),
-        ("Long Put Only", long_put, long_put_costs, single_leg_amount_risked(legs, "PE")),
-        (stock_simulation_label(strategy["strategy_type"]), long_stock, long_stock_costs, stock_notional),
-    ]
-    return {
-        "scenarios": [
-            {
-                "label": label,
-                "pl": value,
-                "capital": capital,
-                "costs": costs,
-                "brokerage": costs.get("brokerage") if costs else None,
-                "stt": costs.get("stt") if costs else None,
-                "charges": costs.get("total") if costs else None,
-                "net": net_after_costs(value, costs),
-                "diff": (
-                    None
-                    if net_after_costs(value, costs) is None or actual_net is None
-                    else net_after_costs(value, costs) - actual_net
-                ),
-            }
-            for label, value, costs, capital in scenarios
-        ],
-        "stock_notional": stock_notional,
-        "best": best_scenario_label(
-            [(label, net_after_costs(value, costs)) for label, value, costs, capital in scenarios]
-        ),
-    }
 
 
 def stock_move_failure_key(row):
@@ -574,23 +468,6 @@ def display_buy_date(row, normalized_dates=None):
     normalized_dates = normalized_dates or {}
     value = normalized_dates.get(position_identity(row)) or row["buy_date"]
     return display_shared_date(value)
-
-
-def realized_pl(row):
-    if row["sell_price"] is None:
-        return None
-    return (row["sell_price"] - row["buy_price"]) * row["qty"]
-
-
-def realized_pl_pct(row):
-    if row["sell_price"] is None or row["buy_price"] in (None, 0):
-        return None
-    return ((row["sell_price"] - row["buy_price"]) / row["buy_price"]) * 100
-
-
-def is_closed_position(row):
-    status = (row["status"] or "").strip().lower()
-    return row["sell_price"] is not None or row["sell_date"] is not None or status in {"closed", "target hit", "stop loss hit", "sold"}
 
 
 def management_position_status(row):
@@ -706,21 +583,6 @@ def stock_dashboard_metrics(positions):
     }
 
 
-def api_float(value):
-    return round(float(value), 2) if value is not None else None
-
-
-def api_pct(value):
-    return round(float(value), 4) if value is not None else None
-
-
-def row_get(row, key, default=None):
-    try:
-        return row[key]
-    except (KeyError, IndexError, TypeError):
-        return default
-
-
 def require_portfolio_api_key():
     remote = (request.remote_addr or "").strip()
     is_local_request = remote in {"127.0.0.1", "::1"}
@@ -734,234 +596,6 @@ def require_portfolio_api_key():
     if not supplied or not secrets.compare_digest(supplied, API_KEY):
         return jsonify({"error": "Unauthorized"}), 401
     return None
-
-
-def stock_actual_pl_payload(positions):
-    rows = []
-    realized_pl_total = 0
-    unrealized_pl_total = 0
-    closed_with_sell = 0
-    winners = 0
-    losers = 0
-    capital_total = 0
-    open_capital = 0
-    realized_capital = 0
-    returns = []
-
-    for row in positions:
-        closed = is_closed_position(row)
-        qty = row["qty"] or 0
-        buy_price = row["buy_price"] or 0
-        current_price = row["current_price"]
-        sell_price = row["sell_price"]
-        capital = buy_price * qty
-        realized_value = realized_pl(row) if closed and sell_price is not None else None
-        unrealized_value = ((current_price - buy_price) * qty) if not closed and current_price is not None else None
-        actual_value = realized_value if realized_value is not None else unrealized_value
-        pct_value = realized_pl_pct(row) if realized_value is not None else (
-            ((current_price - buy_price) / buy_price * 100)
-            if not closed and current_price is not None and buy_price
-            else None
-        )
-
-        capital_total += capital
-        if closed and realized_value is not None:
-            closed_with_sell += 1
-            realized_pl_total += realized_value
-            realized_capital += capital
-            returns.append(pct_value)
-            if realized_value > 0:
-                winners += 1
-            elif realized_value < 0:
-                losers += 1
-        elif not closed:
-            open_capital += capital
-            if unrealized_value is not None:
-                unrealized_pl_total += unrealized_value
-
-        rows.append(
-            {
-                "id": row["id"],
-                "bet_no": row["bet_no"],
-                "trade_group": row_get(row, "trade_group_name"),
-                "trade_group_code": row_get(row, "trade_group_code"),
-                "ticker": row["ticker"],
-                "status": "Closed" if closed else "Open",
-                "buy_date": row["buy_date"],
-                "sell_date": row["sell_date"],
-                "qty": api_float(qty),
-                "buy_price": api_float(buy_price),
-                "current_price": api_float(current_price),
-                "sell_price": api_float(sell_price),
-                "capital": api_float(capital),
-                "realized_pl": api_float(realized_value),
-                "unrealized_pl": api_float(unrealized_value),
-                "actual_pl": api_float(actual_value),
-                "pl_pct": api_pct(pct_value),
-            }
-        )
-
-    return {
-        "summary": {
-            "total_bets": len(positions),
-            "open_bets": len([row for row in positions if not is_closed_position(row)]),
-            "closed_bets": len([row for row in positions if is_closed_position(row)]),
-            "closed_with_sell_price": closed_with_sell,
-            "realized_pl": api_float(realized_pl_total),
-            "unrealized_pl": api_float(unrealized_pl_total),
-            "actual_pl": api_float(realized_pl_total + unrealized_pl_total),
-            "capital": api_float(capital_total),
-            "open_capital": api_float(open_capital),
-            "realized_capital": api_float(realized_capital),
-            "wins": winners,
-            "losses": losers,
-            "win_rate": api_pct((winners / closed_with_sell * 100) if closed_with_sell else None),
-            "avg_realized_return": api_pct((sum(returns) / len(returns)) if returns else None),
-        },
-        "bets": rows,
-    }
-
-
-def option_actual_pl_payload(strategies):
-    rows = []
-    closed = []
-    open_rows = []
-    realized_pl_total = 0
-    risk_capital_total = 0
-    winners = 0
-    losers = 0
-
-    for row in strategies:
-        is_closed_strategy = (row["status"] or "").lower() == "closed"
-        risk_capital = option_strategy_risk_capital(row)
-        display_return = option_strategy_return_pct(row)
-        strategy_pl = row["strategy_pl"] if is_closed_strategy else None
-        if is_closed_strategy:
-            closed.append(row)
-            realized_pl_total += strategy_pl or 0
-            if strategy_pl is not None and risk_capital:
-                risk_capital_total += risk_capital
-            if (strategy_pl or 0) > 0:
-                winners += 1
-            elif (strategy_pl or 0) < 0:
-                losers += 1
-        else:
-            open_rows.append(row)
-
-        rows.append(
-            {
-                "id": row["id"],
-                "bet_no": row["bet_no"] or row["strategy_no"],
-                "strategy_no": row["strategy_no"],
-                "trade_group": row.get("trade_group_name"),
-                "trade_group_code": row.get("trade_group_code"),
-                "strategy_type": row["strategy_type"],
-                "underlying": row["underlying"],
-                "status": row["status"],
-                "buy_date": row["buy_date"],
-                "sell_date": row["sell_date"],
-                "legs": row.get("leg_count"),
-                "risk_capital": api_float(risk_capital),
-                "trade_capital": api_float(row.get("total_trade_capital")),
-                "strategy_pl": api_float(row["strategy_pl"]),
-                "actual_pl": api_float(strategy_pl),
-                "pl_pct": api_pct(display_return),
-            }
-        )
-
-    return {
-        "summary": {
-            "total_bets": len(strategies),
-            "open_bets": len(open_rows),
-            "closed_bets": len(closed),
-            "realized_pl": api_float(realized_pl_total),
-            "actual_pl": api_float(realized_pl_total),
-            "risk_capital": api_float(risk_capital_total),
-            "wins": winners,
-            "losses": losers,
-            "win_rate": api_pct((winners / len(closed) * 100) if closed else None),
-            "avg_return": api_pct((realized_pl_total / risk_capital_total * 100) if risk_capital_total else None),
-        },
-        "bets": rows,
-    }
-
-
-def realized_pl_by_year(positions, strategies):
-    for row in strategies:
-        row["display_pl_pct"] = option_strategy_return_pct(row)
-    transactions = build_pl_transactions(positions, strategies, source_filter="all")
-    by_year = {}
-    for item in transactions:
-        year = str(item["date"].year)
-        bucket = by_year.setdefault(
-            year,
-            {
-                "year": int(year),
-                "stock_realized_pl": 0,
-                "option_realized_pl": 0,
-                "realized_pl": 0,
-                "stock_bets": 0,
-                "option_bets": 0,
-                "wins": 0,
-                "losses": 0,
-            },
-        )
-        source = (item.get("source") or "").lower()
-        pl_value = item.get("pl") or 0
-        if source == "stock":
-            bucket["stock_realized_pl"] += pl_value
-            bucket["stock_bets"] += 1
-        elif source == "option":
-            bucket["option_realized_pl"] += pl_value
-            bucket["option_bets"] += 1
-        bucket["realized_pl"] += pl_value
-        if pl_value > 0:
-            bucket["wins"] += 1
-        elif pl_value < 0:
-            bucket["losses"] += 1
-
-    return {
-        str(bucket["year"]): {
-            "stock_realized_pl": api_float(bucket["stock_realized_pl"]),
-            "option_realized_pl": api_float(bucket["option_realized_pl"]),
-        }
-        for bucket in sorted(by_year.values(), key=lambda item: item["year"], reverse=True)
-    }
-
-
-def recent_stock_activity(positions, limit=5):
-    normalized_buy_dates = normalized_buy_date_map(positions)
-
-    def activity_date(row):
-        if is_closed_position(row) and row["sell_date"]:
-            return parse_shared_date(row["sell_date"])
-        return normalized_buy_dates.get(position_identity(row)) or parse_shared_date(row["buy_date"])
-
-    rows = sorted(
-        positions,
-        key=lambda row: (
-            activity_date(row) or date.min,
-            row["created_at"] or "",
-            row["updated_at"] or "",
-            row["id"],
-        ),
-        reverse=True,
-    )
-    activity = []
-    for row in rows[:limit]:
-        closed = is_closed_position(row)
-        pl_value = realized_pl(row) if closed else None
-        row_date = activity_date(row)
-        activity.append(
-            {
-                "label": f"Bet {row['bet_no'] or '-'}",
-                "title": row["ticker"],
-                "meta": "Closed" if closed else "Open",
-                "date": row_date.isoformat() if row_date else (row["sell_date"] if closed and row["sell_date"] else row["buy_date"]),
-                "value": pl_value,
-            }
-        )
-    return activity
 
 
 def recent_option_activity(strategies, limit=5):
@@ -989,82 +623,6 @@ def month_shift(value, months):
     return date(year, month, day)
 
 
-def option_label(row):
-    bet_no = row.get("bet_no") or row.get("strategy_no") or "-"
-    return f"{row.get('strategy_type') or 'Option'} #{bet_no} - {row.get('underlying') or '-'}"
-
-
-def build_pl_transactions(positions, strategies, source_filter="all"):
-    transactions = []
-
-    if source_filter in {"all", "stock"}:
-        normalized_dates = normalized_buy_date_map(positions)
-        for row in positions:
-            if not is_closed_position(row) or row["sell_price"] is None:
-                continue
-            sold_at = parse_shared_date(row["sell_date"])
-            if not sold_at:
-                continue
-            profit = realized_pl(row)
-            buy_date = normalized_dates.get(position_identity(row)) or parse_shared_date(row["buy_date"])
-            transactions.append(
-                {
-                    "date": sold_at,
-                    "date_label": sold_at.strftime("%d %b %Y"),
-                    "source": "Stock",
-                    "label": f"Bet {row['bet_no'] or '-'} - {row['ticker']}",
-                    "ticker": row["ticker"],
-                    "pl": profit or 0,
-                    "return_pct": realized_pl_pct(row),
-                    "capital": (row["buy_price"] or 0) * (row["qty"] or 0),
-                    "held_days": (sold_at - buy_date).days if buy_date else None,
-                    "status": "Win" if (profit or 0) > 0 else "Loss" if (profit or 0) < 0 else "Flat",
-                }
-            )
-
-    if source_filter in {"all", "option"}:
-        for row in strategies:
-            if (row["status"] or "").lower() != "closed" or row["strategy_pl"] is None:
-                continue
-            sold_at = parse_shared_date(row["sell_date"])
-            if not sold_at:
-                continue
-            buy_date = parse_shared_date(row["buy_date"])
-            profit = row["strategy_pl"] or 0
-            transactions.append(
-                {
-                    "date": sold_at,
-                    "date_label": sold_at.strftime("%d %b %Y"),
-                    "source": "Option",
-                    "label": option_label(row),
-                    "ticker": row["underlying"],
-                    "pl": profit,
-                    "return_pct": row.get("display_pl_pct"),
-                    "capital": row.get("total_trade_capital") or row.get("margin") or 0,
-                    "held_days": (sold_at - buy_date).days if buy_date else None,
-                    "status": "Win" if profit > 0 else "Loss" if profit < 0 else "Flat",
-                }
-            )
-
-    return sorted(transactions, key=lambda item: (item["date"], item["source"], item["label"]), reverse=True)
-
-
-def summarize_pl_items(items):
-    total = sum(item["pl"] for item in items)
-    wins = [item for item in items if item["pl"] > 0]
-    losses = [item for item in items if item["pl"] < 0]
-    capital = sum(item.get("capital") or 0 for item in items)
-    return {
-        "count": len(items),
-        "wins": len(wins),
-        "losses": len(losses),
-        "profit": total,
-        "win_rate": (len(wins) / len(items) * 100) if items else None,
-        "avg_pl": (total / len(items)) if items else None,
-        "return_pct": (total / capital * 100) if capital else None,
-    }
-
-
 def rollup_transactions(transactions, key_func, label_func):
     grouped = defaultdict(list)
     for item in transactions:
@@ -1082,45 +640,6 @@ def rollup_transactions(transactions, key_func, label_func):
             }
         )
     return rows
-
-
-def build_month_calendar(transactions, selected_year, selected_month):
-    by_day = defaultdict(list)
-    month_items = []
-    for item in transactions:
-        if item["date"].year == selected_year and item["date"].month == selected_month:
-            by_day[item["date"].day].append(item)
-            month_items.append(item)
-
-    first_weekday, days_in_month = calendar.monthrange(selected_year, selected_month)
-    cells = []
-    for _ in range(first_weekday):
-        cells.append({"empty": True})
-
-    for day in range(1, days_in_month + 1):
-        items = by_day.get(day, [])
-        cells.append(
-            {
-                "empty": False,
-                "date": date(selected_year, selected_month, day),
-                "day": day,
-                "items": sorted(items, key=lambda item: item["label"]),
-                **summarize_pl_items(items),
-            }
-        )
-
-    while len(cells) % 7:
-        cells.append({"empty": True})
-
-    return {
-        "month_name": calendar.month_name[selected_month],
-        "month_short": calendar.month_abbr[selected_month],
-        "year": selected_year,
-        "month": selected_month,
-        "month_start": date(selected_year, selected_month, 1),
-        **summarize_pl_items(month_items),
-        "weeks": [cells[index:index + 7] for index in range(0, len(cells), 7)],
-    }
 
 
 def months_between(start_date, end_date):
@@ -1811,7 +1330,7 @@ def refresh_price_after_save(position_id, ticker):
 
 @app.before_request
 def log_request_start():
-    app.logger.info("Request started: %s %s", request.method, request.path)
+    app.logger.debug("Request started: %s %s", request.method, request.path)
     app.logger.debug("Request args=%s form_keys=%s", dict(request.args), list(request.form.keys()))
     if request.method == "POST":
         validate_csrf()
@@ -1859,7 +1378,6 @@ def health():
             "scheduler": {
                 "state": scheduler_state,
                 "running": scheduler_running,
-                "heartbeat_path": str(HEARTBEAT_PATH),
                 "heartbeat_at": heartbeat.get("at") if heartbeat else None,
                 "age_minutes": heartbeat_age,
                 "last_market_check_at": heartbeat.get("last_market_check_at") if heartbeat else None,
@@ -2303,477 +1821,6 @@ def index_membership():
         money=money,
         title="Index Membership",
     )
-
-
-def option_bet_streaks(strategies):
-    closed = [
-        row for row in strategies
-        if (row["status"] or "").lower() == "closed"
-    ]
-    closed.sort(key=lambda row: (row["sell_date"] or row["buy_date"] or "", row["id"]))
-
-    longest_winning = 0
-    longest_losing = 0
-    current_winning = 0
-    current_losing = 0
-    for row in closed:
-        pl_value = row["strategy_pl"]
-        if pl_value is not None and pl_value > 0:
-            current_winning += 1
-            current_losing = 0
-            longest_winning = max(longest_winning, current_winning)
-        elif pl_value is not None and pl_value < 0:
-            current_losing += 1
-            current_winning = 0
-            longest_losing = max(longest_losing, current_losing)
-        else:
-            current_winning = 0
-            current_losing = 0
-
-    return {
-        "longest_winning": longest_winning,
-        "longest_losing": longest_losing,
-    }
-
-
-def option_dashboard_metrics(strategies):
-    closed = [row for row in strategies if (row["status"] or "").lower() == "closed"]
-    open_rows = [row for row in strategies if (row["status"] or "").lower() != "closed"]
-    wins = [row for row in closed if (row["strategy_pl"] or 0) > 0]
-    losses = [row for row in closed if (row["strategy_pl"] or 0) < 0]
-    realized_pl = sum(row["strategy_pl"] or 0 for row in closed)
-    return_capital = sum(option_strategy_risk_capital(row) or 0 for row in closed if row["strategy_pl"] is not None)
-    streaks = option_bet_streaks(strategies)
-    by_strategy = {}
-    for row in strategies:
-        key = row["strategy_type"] or "Unclassified"
-        summary = by_strategy.setdefault(
-            key,
-            {
-                "strategy_type": key,
-                "total": 0,
-                "open": 0,
-                "closed": 0,
-                "wins": 0,
-                "losses": 0,
-                "realized_pl": 0,
-                "actual_costs": empty_costs(),
-                "long_call_pl": 0,
-                "long_call_costs": empty_costs(),
-                "long_call_count": 0,
-                "long_call_trade_total": 0,
-                "long_put_pl": 0,
-                "long_put_costs": empty_costs(),
-                "long_put_count": 0,
-                "long_put_trade_total": 0,
-                "long_stock_pl": 0,
-                "long_stock_costs": empty_costs(),
-                "long_stock_count": 0,
-                "long_stock_trade_total": 0,
-                "long_call_trades": [],
-                "long_put_trades": [],
-                "long_stock_trades": [],
-            },
-        )
-        summary["total"] += 1
-        if row["long_call_pl"] is not None:
-            legs = row.get("legs") or []
-            costs = single_leg_simulation_costs(legs, "CE")
-            summary["long_call_pl"] += row["long_call_pl"]
-            summary["long_call_costs"] = add_costs(summary["long_call_costs"], costs)
-            summary["long_call_count"] += 1
-            summary["long_call_trade_total"] += 1
-            if len(summary["long_call_trades"]) < WHATIF_TRADE_LIMIT:
-                summary["long_call_trades"].append(
-                    {
-                        "bet_no": row["bet_no"] or row["strategy_no"],
-                        "underlying": row["underlying"],
-                        "date": row["sell_date"] or row["buy_date"],
-                        "stock_move_pct": row["stock_move_pct"],
-                        "amount_risked": single_leg_amount_risked(legs, "CE"),
-                        "pl": row["long_call_pl"],
-                        "brokerage": costs.get("brokerage") if costs else None,
-                        "charges": costs.get("total") if costs else None,
-                        "net": net_after_costs(row["long_call_pl"], costs),
-                    }
-                )
-        if row["long_put_pl"] is not None:
-            costs = single_leg_simulation_costs(row.get("legs") or [], "PE")
-            summary["long_put_pl"] += row["long_put_pl"]
-            summary["long_put_costs"] = add_costs(summary["long_put_costs"], costs)
-            summary["long_put_count"] += 1
-            summary["long_put_trade_total"] += 1
-            if len(summary["long_put_trades"]) < WHATIF_TRADE_LIMIT:
-                summary["long_put_trades"].append(
-                    {
-                        "bet_no": row["bet_no"] or row["strategy_no"],
-                        "underlying": row["underlying"],
-                        "date": row["sell_date"] or row["buy_date"],
-                        "stock_move_pct": row["stock_move_pct"],
-                        "pl": row["long_put_pl"],
-                        "brokerage": costs.get("brokerage") if costs else None,
-                        "charges": costs.get("total") if costs else None,
-                        "net": net_after_costs(row["long_put_pl"], costs),
-                    }
-                )
-        if (row["status"] or "").lower() == "closed":
-            stock_notional = stock_equivalent_notional(row["strategy_type"], row.get("legs") or [])
-            stock_pl = stock_simulation_pl_from_move(row["stock_move_pct"], row["strategy_type"], stock_notional)
-            costs = stock_simulation_costs(row["stock_move_pct"], row["strategy_type"], stock_notional)
-            if stock_pl is not None:
-                summary["long_stock_pl"] += stock_pl
-                summary["long_stock_costs"] = add_costs(summary["long_stock_costs"], costs)
-                summary["long_stock_count"] += 1
-            summary["long_stock_trade_total"] += 1
-            if len(summary["long_stock_trades"]) < WHATIF_TRADE_LIMIT:
-                summary["long_stock_trades"].append(
-                    {
-                        "bet_no": row["bet_no"] or row["strategy_no"],
-                        "underlying": row["underlying"],
-                        "date": row["sell_date"] or row["buy_date"],
-                        "stock_move_pct": row["stock_move_pct"],
-                        "amount_risked": stock_notional,
-                        "pl": stock_pl,
-                        "brokerage": costs.get("brokerage") if costs else None,
-                        "charges": costs.get("total") if costs else None,
-                        "net": net_after_costs(stock_pl, costs),
-                        "missing_stock_move": row["stock_move_pct"] is None,
-                        "stock_scenario_label": stock_simulation_label(row["strategy_type"]),
-                    }
-                )
-        if (row["status"] or "").lower() == "closed":
-            summary["closed"] += 1
-            summary["realized_pl"] += row["strategy_pl"] or 0
-            summary["actual_costs"] = add_costs(summary["actual_costs"], option_strategy_costs(row.get("legs") or []))
-            if (row["strategy_pl"] or 0) > 0:
-                summary["wins"] += 1
-            elif (row["strategy_pl"] or 0) < 0:
-                summary["losses"] += 1
-        else:
-            summary["open"] += 1
-    for summary in by_strategy.values():
-        if not summary["long_call_count"]:
-            summary["long_call_pl"] = None
-            summary["long_call_costs"] = None
-        if not summary["long_put_count"]:
-            summary["long_put_pl"] = None
-            summary["long_put_costs"] = None
-        if not summary["long_stock_count"]:
-            summary["long_stock_pl"] = None
-            summary["long_stock_costs"] = None
-        summary["actual_brokerage"] = summary["actual_costs"]["total"]
-        summary["long_call_brokerage"] = summary["long_call_costs"]["total"] if summary["long_call_costs"] else None
-        summary["long_put_brokerage"] = summary["long_put_costs"]["total"] if summary["long_put_costs"] else None
-        summary["long_stock_brokerage"] = summary["long_stock_costs"]["total"] if summary["long_stock_costs"] else None
-        summary["actual_net"] = net_after_costs(summary["realized_pl"], summary["actual_costs"])
-        summary["long_call_net"] = net_after_costs(summary["long_call_pl"], summary["long_call_costs"])
-        summary["long_put_net"] = net_after_costs(summary["long_put_pl"], summary["long_put_costs"])
-        summary["long_stock_net"] = net_after_costs(summary["long_stock_pl"], summary["long_stock_costs"])
-        summary["stock_scenario_label"] = stock_simulation_label(summary["strategy_type"])
-        summary["best"] = best_scenario_label(
-            [
-                ("Actual", summary["actual_net"]),
-                ("Long Call", summary["long_call_net"]),
-                ("Long Put", summary["long_put_net"]),
-                (summary["stock_scenario_label"], summary["long_stock_net"]),
-            ]
-        )
-    return {
-        "total": len(strategies),
-        "open": len(open_rows),
-        "closed": len(closed),
-        "wins": len(wins),
-        "losses": len(losses),
-        "outcome_rate": (len(wins) / len(closed) * 100) if closed else None,
-        "realized_pl": realized_pl,
-        "avg_return": (realized_pl / return_capital * 100) if return_capital else None,
-        "longest_winning_streak": streaks["longest_winning"],
-        "longest_losing_streak": streaks["longest_losing"],
-        "whatif_trade_limit": WHATIF_TRADE_LIMIT,
-        "by_strategy": sorted(by_strategy.values(), key=lambda item: item["total"], reverse=True),
-    }
-
-
-def option_whatif_report_rows(strategies):
-    rows = []
-    for row in strategies:
-        if (row["status"] or "").lower() != "closed":
-            continue
-
-        legs = row.get("legs") or []
-        comparison = option_bet_comparison(row, legs)
-        scenario_map = {scenario["label"]: scenario for scenario in comparison["scenarios"]}
-        long_call = scenario_map.get("Long Call Only", {})
-        long_put = scenario_map.get("Long Put Only", {})
-        stock_label = stock_simulation_label(row["strategy_type"])
-        stock = scenario_map.get(stock_label, {})
-        stock_side = stock_simulation_side(row["strategy_type"])
-        stock_notional = comparison.get("stock_notional")
-
-        rows.append(
-            {
-                "group_name": row["trade_group_name"],
-                "group_code": row["trade_group_code"],
-                "strategy": row["strategy_type"],
-                "bet_no": row["bet_no"] or row["strategy_no"],
-                "bet_details": f"{row['trade_group_code']}-{int(row['bet_no'] or row['strategy_no']):03d} - {row['underlying']}",
-                "underlying": row["underlying"],
-                "date": row["sell_date"] or row["buy_date"],
-                "stock_move_pct": row["stock_move_pct"],
-                "actual_risk": option_strategy_risk_capital(row),
-                "actual_pl": row["strategy_pl"],
-                "actual_net": scenario_map.get("Actual Strategy", {}).get("net"),
-                "long_call_risk": single_leg_amount_risked(legs, "CE"),
-                "long_call_pl": long_call.get("pl"),
-                "long_call_net": long_call.get("net"),
-                "long_call_charges": long_call.get("charges"),
-                "long_put_risk": single_leg_amount_risked(legs, "PE"),
-                "long_put_pl": long_put.get("pl"),
-                "long_put_net": long_put.get("net"),
-                "long_put_charges": long_put.get("charges"),
-                "buy_stock_risk": stock_notional if stock_side != "short" and stock.get("pl") is not None else None,
-                "buy_stock_pl": stock.get("pl") if stock_side != "short" else None,
-                "buy_stock_net": stock.get("net") if stock_side != "short" else None,
-                "buy_stock_charges": stock.get("charges") if stock_side != "short" else None,
-                "short_stock_risk": stock_notional if stock_side == "short" and stock.get("pl") is not None else None,
-                "short_stock_pl": stock.get("pl") if stock_side == "short" else None,
-                "short_stock_net": stock.get("net") if stock_side == "short" else None,
-                "short_stock_charges": stock.get("charges") if stock_side == "short" else None,
-                "legs": legs,
-                "best": comparison["best"],
-            }
-        )
-    return sorted(rows, key=lambda item: (item["date"] or "", item["bet_no"]), reverse=True)
-
-
-def option_whatif_visible_columns(rows):
-    scenario_columns = [
-        {
-            "key": "long_call",
-            "label": "Long Call Only P/L",
-            "risk_key": "long_call_risk",
-            "pl_key": "long_call_pl",
-            "net_key": "long_call_net",
-            "charges_key": "long_call_charges",
-        },
-        {
-            "key": "long_put",
-            "label": "Long Put Only P/L",
-            "risk_key": "long_put_risk",
-            "pl_key": "long_put_pl",
-            "net_key": "long_put_net",
-            "charges_key": "long_put_charges",
-        },
-        {
-            "key": "buy_stock",
-            "label": "Buy Stock Equivalent P/L",
-            "risk_key": "buy_stock_risk",
-            "pl_key": "buy_stock_pl",
-            "net_key": "buy_stock_net",
-            "charges_key": "buy_stock_charges",
-        },
-        {
-            "key": "short_stock",
-            "label": "Short Stock Equivalent P/L",
-            "risk_key": "short_stock_risk",
-            "pl_key": "short_stock_pl",
-            "net_key": "short_stock_net",
-            "charges_key": "short_stock_charges",
-        },
-    ]
-    return [
-        column
-        for column in scenario_columns
-        if any(row.get(column["pl_key"]) is not None for row in rows)
-    ]
-
-
-def max_drawdown(values):
-    peak = 0
-    cumulative = 0
-    drawdown = 0
-    for value in values:
-        cumulative += value or 0
-        peak = max(peak, cumulative)
-        drawdown = max(drawdown, peak - cumulative)
-    return drawdown
-
-
-def volatility(values):
-    if len(values) < 2:
-        return None
-    mean = sum(values) / len(values)
-    variance = sum((value - mean) ** 2 for value in values) / len(values)
-    return math.sqrt(variance)
-
-
-def scenario_risk_stats(rows, value_key, risk_key):
-    chronological = sorted(rows, key=lambda item: (item["date"] or "", item["bet_no"]))
-    values = [row[value_key] for row in chronological if row.get(value_key) is not None]
-    returns = [
-        row[value_key] / row[risk_key] * 100
-        for row in chronological
-        if row.get(value_key) is not None and row.get(risk_key)
-    ]
-    return {
-        "max_drawdown": max_drawdown(values) if values else None,
-        "max_drawdown_pct": max_drawdown(returns) if returns else None,
-        "volatility_pct": volatility(returns),
-        "win_rate": (len([value for value in values if value > 0]) / len(values) * 100) if values else None,
-        "worst": min(values) if values else None,
-    }
-
-
-def after_tax_profit(value, tax_rate):
-    if value is None:
-        return None
-    if value <= 0:
-        return value
-    return value * (1 - tax_rate / 100)
-
-
-def whatif_tax_basis(label):
-    if "Stock Equivalent" in label:
-        return "STCG", STCG_TAX_RATE
-    return "Business", BUSINESS_INCOME_TAX_RATE
-
-
-def option_whatif_report_summary(rows):
-    scenarios = [
-        ("Actual strategy", "actual_net", "actual_risk"),
-        ("Long Call only", "long_call_net", "long_call_risk"),
-        ("Long Put only", "long_put_net", "long_put_risk"),
-        ("Buy Stock Equivalent", "buy_stock_net", "buy_stock_risk"),
-        ("Short Stock Equivalent", "short_stock_net", "short_stock_risk"),
-    ]
-    summary = {
-        "closed_bets": len(rows),
-        "best_label": "No data",
-        "best_value": None,
-        "actual_value": None,
-        "gap_vs_actual": None,
-        "insight": "No closed option bets are available for what-if analysis yet.",
-        "scenario_cards": [],
-    }
-    if not rows:
-        return summary
-
-    scenario_cards = []
-    for label, key, risk_key in scenarios:
-        values = [row[key] for row in rows if row.get(key) is not None]
-        total = sum(values) if values else None
-        capital_values = [row[risk_key] for row in rows if row.get(key) is not None and row.get(risk_key)]
-        capital_total = sum(capital_values) if capital_values else None
-        capital_avg = (capital_total / len(capital_values)) if capital_values else None
-        risk_stats = scenario_risk_stats(rows, key, risk_key)
-        tax_label, tax_rate = whatif_tax_basis(label)
-        scenario_cards.append(
-            {
-                "label": label,
-                "value": total,
-                "count": len(values),
-                "avg": (total / len(values)) if values else None,
-                "capital_total": capital_total,
-                "capital_avg": capital_avg,
-                "tax_label": tax_label,
-                "tax_rate": tax_rate,
-                "after_tax": after_tax_profit(total, tax_rate),
-                **risk_stats,
-            }
-        )
-
-    ranked = [card for card in scenario_cards if card["value"] is not None]
-    ranked.sort(key=lambda card: card["value"], reverse=True)
-    best = ranked[0] if ranked else None
-    actual = next((card for card in scenario_cards if card["label"] == "Actual strategy"), None)
-    summary["actual_value"] = actual["value"] if actual else None
-    if best:
-        summary["best_label"] = best["label"]
-        summary["best_value"] = best["value"]
-        if actual and actual["value"] is not None and best["label"] != actual["label"]:
-            gap = best["value"] - actual["value"]
-            summary["gap_vs_actual"] = gap
-            summary["insight"] = f"{best['label']} is ahead of the actual strategy by {money(gap)} on net P/L."
-        elif actual and actual["value"] is not None:
-            summary["insight"] = "The actual strategy is currently the strongest net outcome in this comparison."
-        else:
-            summary["insight"] = f"{best['label']} is the strongest available scenario in this comparison."
-
-    summary["scenario_cards"] = [card for card in scenario_cards if card["count"]]
-    return summary
-
-
-def option_stock_move_distribution(rows):
-    """Group completed option bets into signed one-percent stock-move bands."""
-    bands = [
-        (None, -5, "<-5%"),
-        (-5, -4, "-5% to -4%"),
-        (-4, -3, "-4% to -3%"),
-        (-3, -2, "-3% to -2%"),
-        (-2, -1, "-2% to -1%"),
-        (-1, 0, "-1% to 0%"),
-        (0, 1, "0% to 1%"),
-        (1, 2, "1% to 2%"),
-        (2, 3, "2% to 3%"),
-        (3, 4, "3% to 4%"),
-        (4, 5, "4% to 5%"),
-        (5, None, "5%+"),
-    ]
-    result = [{"label": label, "count": 0, "up": 0, "down": 0} for _start, _end, label in bands]
-    missing = 0
-    for row in rows:
-        move = row.get("stock_move_pct")
-        if move is None:
-            missing += 1
-            continue
-        value = float(move)
-        for index, (start, end, _label) in enumerate(bands):
-            if (start is None or value >= start) and (end is None or value < end):
-                result[index]["count"] += 1
-                if move > 0:
-                    result[index]["up"] += 1
-                elif move < 0:
-                    result[index]["down"] += 1
-                break
-    measured = sum(item["count"] for item in result)
-    max_count = max((item["count"] for item in result), default=0)
-    for item in result:
-        item["share"] = (item["count"] / measured * 100) if measured else 0
-        item["height"] = max(4, item["count"] / max_count * 100) if max_count else 0
-    return {
-        "bands": result,
-        "measured": measured,
-        "up": sum(item["up"] for item in result),
-        "down": sum(item["down"] for item in result),
-        "flat": measured - sum(item["up"] for item in result) - sum(item["down"] for item in result),
-        "missing": missing,
-    }
-
-
-def option_growth_chart_data(strategies):
-    closed = [
-        row for row in strategies
-        if (row["status"] or "").lower() == "closed"
-        and row["strategy_pl"] is not None
-    ]
-    closed.sort(key=lambda row: (row["sell_date"] or row["buy_date"] or "", row["id"]))
-
-    total = 0
-    points = []
-    for row in closed:
-        pl_value = row["strategy_pl"] or 0
-        total += pl_value
-        points.append(
-            {
-                "date": row["sell_date"] or row["buy_date"],
-                "label": f"{row['strategy_type']} #{row['bet_no'] or row['strategy_no']}",
-                "underlying": row["underlying"],
-                "pl": round(pl_value, 2),
-                "value": round(total, 2),
-                "outcome": "win" if pl_value > 0 else "loss" if pl_value < 0 else "flat",
-            }
-        )
-    return points
 
 
 @app.route("/options")
@@ -3255,7 +2302,7 @@ def option_strategy_detail(strategy_id):
         "option_strategy_detail.html",
         strategy=strategy,
         legs=legs,
-        comparison=option_bet_comparison(strategy, legs),
+        comparison=option_bet_comparison(strategy_context, strategy_context["legs"]),
         display_pl_pct=option_strategy_return_pct(strategy_context),
         display_max_risk=calculated_option_max_risk(strategy_context) or strategy["max_risk"],
         money=money,
@@ -3269,6 +2316,10 @@ def option_strategy_detail(strategy_id):
 @app.post("/options/<int:strategy_id>/delete")
 @login_required
 def delete_option_strategy_route(strategy_id):
+    strategy, _legs = get_option_strategy(strategy_id)  # owner-filtered lookup
+    if strategy is None:
+        flash("Option strategy not found.", "error")
+        return redirect(url_for("options_dashboard"))
     delete_option_strategy(strategy_id)
     flash("Option strategy removed.", "success")
     return redirect(url_for("options_dashboard"))
