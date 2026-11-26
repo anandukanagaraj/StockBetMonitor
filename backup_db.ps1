@@ -1,35 +1,36 @@
 param(
-    [int]$Keep = 30
+    [int]$Keep = 30,
+    [string]$CopyDir = ""
 )
+
+# Creates a consistent database backup using SQLite's backup API (includes
+# changes still in the WAL file). The scheduler also runs this daily after
+# REPORT_TIME; see the [BACKUP] section in config.ini.
 
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DbPath = Join-Path $ProjectRoot "data\stock_monitor.db"
-$BackupDir = Join-Path $ProjectRoot "data\backups"
+$PythonPath = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 
 if ($Keep -lt 1) {
     throw "Keep must be at least 1."
 }
-
-if (-not (Test-Path -LiteralPath $DbPath)) {
-    throw "Database not found: $DbPath"
+if (-not (Test-Path -LiteralPath $PythonPath)) {
+    throw "Python executable not found: $PythonPath"
 }
 
-New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
+$Arguments = @("-m", "services.db_backup", "--keep", $Keep)
+if ($CopyDir) {
+    $Arguments += @("--copy-dir", $CopyDir)
+}
 
-$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupPath = Join-Path $BackupDir "stock_monitor_$Timestamp.db"
-
-Copy-Item -LiteralPath $DbPath -Destination $BackupPath -Force
-
-$Backups = Get-ChildItem -LiteralPath $BackupDir -Filter "stock_monitor_*.db" |
-    Sort-Object LastWriteTime -Descending
-
-$Backups |
-    Select-Object -Skip $Keep |
-    Remove-Item -Force
-
-Write-Host "Database backup created:"
-Write-Host $BackupPath
-Write-Host "Keeping latest $Keep backup(s) in $BackupDir"
+Push-Location $ProjectRoot
+try {
+    & $PythonPath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Database backup failed."
+    }
+}
+finally {
+    Pop-Location
+}

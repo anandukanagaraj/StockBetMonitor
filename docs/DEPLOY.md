@@ -49,6 +49,15 @@ sudo chown 1000:1000 config.ini && chmod 600 config.ini
 
 The app **refuses to start** without `APP_SECRET_KEY` and `ADMIN_PASSWORD_HASH`.
 
+`ADMIN_PASSWORD_HASH` only works for the admin's first login. After that the
+password stored in the database is used. If you copy your laptop database to the
+server, the laptop password comes with it. Accounts still on the default
+`admin123` password are refused on a hosted server. To set a password directly:
+
+```bash
+docker compose exec stockmonitor python reset_password.py admin
+```
+
 ### Avoid duplicate alerts
 
 `config.ini.example` ships with email, Telegram and GitHub Pages publishing

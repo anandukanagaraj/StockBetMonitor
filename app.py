@@ -228,7 +228,8 @@ if API_KEY is None:
     _api_config = configparser.ConfigParser()
     _api_config.read(CONFIG_PATH)
     API_KEY = _api_config.get("API", "PORTFOLIO_API_KEY", fallback="").strip()
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+DEFAULT_ADMIN_PASSWORD = "admin123"
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
 if ADMIN_PASSWORD_HASH:
     ACTIVE_PASSWORD_HASH = ADMIN_PASSWORD_HASH
 else:
@@ -306,6 +307,7 @@ def inject_security_helpers():
         "is_authenticated": is_authenticated,
         "is_admin": is_admin,
         "current_username": lambda: session.get("username"),
+        "password_change_required": lambda: bool(session.get("must_change_password")),
         "compact_money": compact_money,
     }
 
@@ -1808,8 +1810,18 @@ def login():
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
         user = get_user_by_username(username)
-        valid_bootstrap_admin = username == ADMIN_USERNAME and check_password_hash(ACTIVE_PASSWORD_HASH, password)
+        # The bootstrap password (ADMIN_PASSWORD_HASH, or the development default)
+        # only works until the admin account has a password of its own.
+        needs_bootstrap = username == ADMIN_USERNAME and (not user or not user.get("password_hash"))
+        valid_bootstrap_admin = needs_bootstrap and check_password_hash(ACTIVE_PASSWORD_HASH, password)
+        if user and not user["is_active"]:
+            valid_bootstrap_admin = False
         valid_user = user and user["is_active"] and user.get("password_hash") and check_password_hash(user["password_hash"], password)
+        uses_default_password = bool(valid_user or valid_bootstrap_admin) and password == DEFAULT_ADMIN_PASSWORD
+        if uses_default_password and not IS_LOCAL_BIND:
+            app.logger.warning("Login refused: default password on hosted server: username=%s", username)
+            flash("This account still uses the default password. Set a new one with reset_password.py on the server.", "error")
+            return render_template("login.html")
         if valid_user or valid_bootstrap_admin:
             if not user:
                 flash("Account setup is incomplete. Please restart the application once.", "error")
@@ -1820,6 +1832,9 @@ def login():
             session["user_id"] = user["id"]
             session["username"] = user["username"]
             session["is_admin"] = bool(user["is_admin"])
+            if uses_default_password:
+                session["must_change_password"] = True
+                flash("You are using the default password. Change it now from Account > Change password.", "error")
             csrf_token()
             app.logger.info("Login succeeded: username=%s", username)
             return redirect(request.args.get("next") or url_for("report_targets"))
@@ -1898,7 +1913,7 @@ def change_password():
     new_password = request.form.get("new_password") or ""
     user = get_user_by_username(session.get("username") or "")
     valid_current = user and user.get("password_hash") and check_password_hash(user["password_hash"], current_password)
-    if not valid_current and session.get("username") == ADMIN_USERNAME:
+    if not valid_current and session.get("username") == ADMIN_USERNAME and user and not user.get("password_hash"):
         valid_current = check_password_hash(ACTIVE_PASSWORD_HASH, current_password)
     if not valid_current:
         flash("Current password is incorrect.", "error")
@@ -1906,6 +1921,7 @@ def change_password():
         flash("New password must contain at least 10 characters.", "error")
     else:
         set_user_password(session["user_id"], generate_password_hash(new_password))
+        session.pop("must_change_password", None)
         flash("Password changed successfully.", "success")
     return redirect(request.referrer or url_for("index"))
 

@@ -15,6 +15,11 @@
   {% endif %}
 
   <main class="page">
+    {% if is_authenticated() and password_change_required() %}
+      <div class="alerts">
+        <div class="alert error">This account still uses the default password. Change it from Account &gt; Change password.</div>
+      </div>
+    {% endif %}
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         <div class="alerts">

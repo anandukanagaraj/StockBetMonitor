@@ -50,3 +50,9 @@ PORTFOLIO_API_KEY=
 ENABLE_AFTER_EOD=NO
 # Leave empty in Docker to use /app/public.
 PUBLIC_DIR=
+
+[BACKUP]
+# Daily database backups after REPORT_TIME, kept in data/backups.
+KEEP=30
+# Optional second copy off this machine, e.g. a OneDrive or Google Drive folder.
+COPY_DIR=

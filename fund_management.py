@@ -747,7 +747,7 @@ def add_investor(fund_id):
             raise ValueError("Fund was not found.")
         allocation = None
         amount = _float(request.form.get("funding_amount"), "Funding amount", 0.01)
-        nav = snapshot["nav"]
+        transaction_date, nav, nav_date = _nav_for_transaction(fund_id, snapshot["nav"], request.form.get("transaction_date"))
         allocation = ("SUBSCRIPTION", amount, nav, amount / nav, "Investor funding")
         timestamp = _now()
         with connect() as connection:
@@ -761,13 +761,43 @@ def add_investor(fund_id):
                     """INSERT INTO fund_transactions
                        (user_id, fund_id, investor_id, transaction_type, transaction_date, amount, nav, units, notes, created_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (user_id, fund_id, investor_id, kind, request.form.get("transaction_date") or date.today().isoformat(),
+                    (user_id, fund_id, investor_id, kind, transaction_date,
                      amount, nav, units, notes, timestamp),
                 )
-        flash(f"Investor {name} added.", "success")
+        flash(f"Investor {name} added: {units:,.4f} units at NAV {nav:,.4f} (NAV of {nav_date}).", "success")
     except ValueError as exc:
         flash(str(exc), "error")
     return redirect(url_for("fund_management.fund_dashboard", fund_id=fund_id))
+
+
+def _nav_for_transaction(fund_id, current_nav, transaction_date_text, today=None):
+    """Return (date, nav, nav_date) for pricing a subscription or redemption.
+
+    Today's transactions use the live NAV. Back-dated ones use the NAV recorded
+    on that date, or the closest earlier recorded date, so units are not issued
+    at a price from a different day.
+    """
+    today = today or date.today()
+    text = (transaction_date_text or "").strip()
+    if not text:
+        return today.isoformat(), current_nav, today.isoformat()
+    try:
+        tx_date = date.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError("Enter a valid transaction date.") from exc
+    if tx_date > today:
+        raise ValueError("Transaction date cannot be in the future.")
+    if tx_date == today:
+        return tx_date.isoformat(), current_nav, today.isoformat()
+    with connect() as connection:
+        row = connection.execute(
+            """SELECT snapshot_date, nav FROM fund_nav_snapshots
+               WHERE fund_id = ? AND snapshot_date <= ? ORDER BY snapshot_date DESC LIMIT 1""",
+            (fund_id, tx_date.isoformat()),
+        ).fetchone()
+    if not row:
+        raise ValueError(f"No NAV is recorded on or before {tx_date.isoformat()}. Use today's date instead.")
+    return tx_date.isoformat(), row["nav"], row["snapshot_date"]
 
 
 def _record_transaction(user_id, fund_id, investor_id, kind, amount, nav, units, transaction_date, notes):
@@ -790,7 +820,7 @@ def add_transaction(fund_id):
         investor = next((row for row in snapshot["investors"] if row["id"] == investor_id), None)
         if not investor:
             raise ValueError("Investor was not found.")
-        nav = snapshot["nav"]
+        transaction_date, nav, nav_date = _nav_for_transaction(fund_id, snapshot["nav"], request.form.get("transaction_date"))
         units_text = (request.form.get("units") or "").strip()
         amount_text = (request.form.get("amount") or "").strip()
         units = _float(units_text, "Units", 0.000001) if units_text else None
@@ -801,8 +831,8 @@ def add_transaction(fund_id):
         amount = amount if amount is not None else units * nav
         if kind == "REDEMPTION" and units > investor["units"] + 0.000001:
             raise ValueError("Redemption units exceed this investor's holdings.")
-        _record_transaction(user_id, fund_id, investor_id, kind, amount, nav, units, request.form.get("transaction_date"), request.form.get("notes"))
-        flash(f"{kind.title()} recorded for {investor['name']}.", "success")
+        _record_transaction(user_id, fund_id, investor_id, kind, amount, nav, units, transaction_date, request.form.get("notes"))
+        flash(f"{kind.title()} recorded for {investor['name']}: {units:,.4f} units at NAV {nav:,.4f} (NAV of {nav_date}).", "success")
     except (ValueError, TypeError) as exc:
         flash(str(exc), "error")
     return redirect(url_for("fund_management.fund_dashboard", fund_id=fund_id))

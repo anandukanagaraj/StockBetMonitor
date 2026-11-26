@@ -38,6 +38,7 @@ from db import (
     get_user_by_username,
 )
 from options_db import list_option_strategies
+from services.db_backup import backup_database
 from services.date_utils import (
     display_date as display_shared_date,
     normalized_buy_date_map,
@@ -77,6 +78,7 @@ class AlertResult:
     remaining: float
     remaining_percent: float
     status: str
+    position_id: int | None = None
 
 
 def setup_logger():
@@ -186,7 +188,40 @@ def load_state():
 
 def save_state(state):
     STATE_PATH.parent.mkdir(exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    temp_path = STATE_PATH.with_suffix(".tmp")
+    temp_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    os.replace(temp_path, STATE_PATH)
+
+
+# Alert levels: an alert is sent when a bet moves UP a level (or newly hits its
+# stop loss), and once per day at the first check while it stays at a level.
+# Dropping back down a level is recorded silently, so prices hovering around a
+# threshold don't send a stream of alerts.
+ALERT_LEVELS = {"HOLD": 0, "NEAR TARGET": 1, "VERY CLOSE": 2, "TARGET HIT": 3, "STOP LOSS HIT": 3}
+
+
+def alert_key(result):
+    return str(result.position_id) if result.position_id is not None else f"{result.ticker}|{result.bet_no}"
+
+
+def should_send_alert(previous, status, today):
+    if ALERT_LEVELS.get(status, 0) == 0:
+        return False
+    if not previous:
+        return True
+    if previous.get("sent_date") != today:
+        return True
+    previous_status = previous.get("status")
+    if status == "STOP LOSS HIT":
+        return previous_status != "STOP LOSS HIT"
+    return ALERT_LEVELS.get(status, 0) > ALERT_LEVELS.get(previous_status, 0)
+
+
+def next_alert_state(previous, status, today, sent):
+    return {
+        "status": status,
+        "sent_date": today if sent else (previous or {}).get("sent_date"),
+    }
 
 
 def scheduler_stock_group_codes(config):
@@ -377,6 +412,7 @@ def evaluate(row):
         remaining=remaining,
         remaining_percent=remaining_percent,
         status=status,
+        position_id=row["id"] if "id" in row.keys() else None,
     )
 
 
@@ -687,6 +723,10 @@ def send_alert(config, result, message):
     except Exception:
         logger.exception("Telegram fallback failed: bet_no=%s ticker=%s", result.bet_no, result.ticker)
 
+    if delivered["telegram"]:
+        logger.info("Alert delivered by Telegram; email fallback not needed: bet_no=%s ticker=%s", result.bet_no, result.ticker)
+        return delivered
+
     try:
         delivered["email"] = send_eod_email(
             config,
@@ -870,6 +910,13 @@ def run_market_check(config):
     except Exception:
         logger.exception("Portfolio performance snapshot failed")
 
+    state = load_state()
+    previous_alerts = state.get("alerts") or {}
+    today = datetime.now().date().isoformat()
+    # Keep entries for bets whose price fetch failed this time, drop closed bets.
+    open_keys = {str(row["id"]) for row in rows} | {str(row["id"]) for row in failed_rows}
+    alert_state = {key: value for key, value in previous_alerts.items() if key in open_keys}
+
     results = []
     for row in rows:
         result = evaluate(row)
@@ -889,10 +936,26 @@ def run_market_check(config):
             result.status,
         )
 
-        if result.status in ("TARGET HIT", "STOP LOSS HIT", "VERY CLOSE", "NEAR TARGET"):
+        key = alert_key(result)
+        previous = alert_state.get(key)
+        sent = False
+        if should_send_alert(previous, result.status, today):
             message = format_whatsapp_message(result)
             logger.info("PORTFOLIO ALERT\n%s", message)
             send_alert(config, result, message)
+            sent = True
+        elif ALERT_LEVELS.get(result.status, 0):
+            logger.info(
+                "Alert already sent today: bet_no=%s ticker=%s status=%s",
+                result.bet_no,
+                result.ticker,
+                result.status,
+            )
+        alert_state[key] = next_alert_state(previous, result.status, today, sent)
+
+    state = load_state()
+    state["alerts"] = alert_state
+    save_state(state)
 
     try:
         generate_report_snapshots(config)
@@ -930,6 +993,35 @@ def is_trading_day(config, value=None):
     value = value or datetime.now()
     day = value.date() if isinstance(value, datetime) else value
     return day.weekday() < 5 and day.isoformat() not in configured_market_holidays(config)
+
+
+def run_daily_backup_if_due(config, now=None):
+    """Back up the database once a day, after REPORT_TIME (or at the first
+    scheduler cycle after it, if the laptop was off at that time)."""
+    now = now or datetime.now()
+    today = now.date().isoformat()
+    report_time = parse_hhmm(config.get("MARKET", "REPORT_TIME", fallback="15:35"))
+    if now.time() < report_time:
+        return None
+    state = load_state()
+    if state.get("backup_date") == today:
+        return None
+    keep = config.getint("BACKUP", "KEEP", fallback=30)
+    copy_dir = config.get("BACKUP", "COPY_DIR", fallback="").strip() or None
+    try:
+        path = backup_database(keep=keep, copy_dir=copy_dir)
+    except Exception:
+        logger.exception("Daily database backup failed")
+        if state.get("backup_failed_alert_date") != today:
+            send_telegram(config, "StockMonitor: daily database backup FAILED. Check the scheduler log.")
+            state["backup_failed_alert_date"] = today
+            save_state(state)
+        return None
+    state = load_state()
+    state["backup_date"] = today
+    state["backup_path"] = str(path)
+    save_state(state)
+    return path
 
 
 def run_eod_email_if_due(config, force=False):
@@ -1373,6 +1465,7 @@ def run_once(force=False):
         logger.info("Outside Indian market hours. Skipping market check.")
         write_heartbeat(status="idle")
     run_eod_email_if_due(config, force=force)
+    run_daily_backup_if_due(config)
 
 
 def run_forever():
@@ -1409,6 +1502,7 @@ def run_forever():
                 logger.info("Next market cycle scheduled_for=%s", next_market_check_at.strftime("%Y-%m-%d %H:%M:%S"))
 
             run_eod_email_if_due(config, force=False)
+            run_daily_backup_if_due(config)
             sleep_seconds = next_scheduler_wakeup(config, next_market_check_at)
             write_heartbeat(status="sleeping")
             logger.info("Scheduler sleeping for %.0f seconds", sleep_seconds)
